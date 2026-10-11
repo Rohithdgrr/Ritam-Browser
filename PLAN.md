@@ -568,6 +568,15 @@ same section.
    phase line. CI actions are pinned to major tags, not SHAs — ROT: if
    you want SHA pins, that's your line (tests/**, scripts/**, and I'd
    need the workflow edit too).
+   Evidence (2026-10-11): CI run #1 (`main`, commit `0e6d0a3`) and run
+   #2 (tag `v0.1.0`) both concluded **success** — the runner verified
+   the engine sha256 before extraction, nextest was green on all three
+   crates (core 9 / store 44 / host 11, incl. the live CLI-vs-CDP
+   parity test), `cargo tauri build` produced the `.msi` + NSIS
+   installers (artifact 129,370,912 B), and run #2's "Draft GitHub
+   release" step created draft release **v0.1.0** with both installers
+   attached — publishing it stays the owner's call. The ui-contract
+   job failed as designed (Govinda C2/C4) and stayed non-blocking.
 
 ### ROT — announcements + stage status (2026-10-10, 14:48)
 
