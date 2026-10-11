@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Arc Zen Minimalist Browser — Fluid Micro-Interactions</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface": "#FAF9F5",
+            "background": "#FAF9F5",
+            "surface-card": "#FFFFFF",
+            "surface-container-low": "#F4F4F0",
+            "surface-container": "#EFEEEA",
+            "primary": "#325346",
+            "accent-sage": "#4A6B5D",
+            "accent-blue": "#5E81AC",
+            "accent-gold": "#D97706",
+            "on-surface": "#1E2022",
+            "outline": "#787B80",
+            "border-subtle": "#E8E7E1"
+          },
+          fontFamily: {
+            sans: ["Plus Jakarta Sans", "sans-serif"],
+            serif: ["Newsreader", "serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: #dcd9cf; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #c5c1b5; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    /* Fluid Timing Presets */
+    :root {
+      --spring-easing: cubic-bezier(0.16, 1, 0.3, 1);
+      --bounce-easing: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* Keyframe Animations */
+    @keyframes bookmarkSparkle {
+      0% { transform: scale(1) rotate(0deg); }
+      40% { transform: scale(1.38) rotate(14deg); filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6)); }
+      70% { transform: scale(0.92) rotate(-4deg); }
+      100% { transform: scale(1) rotate(0deg); }
+    }
+    .star-bounce {
+      animation: bookmarkSparkle 0.48s var(--bounce-easing) forwards;
+    }
+
+    @keyframes pageCrossFade {
+      0% {
+        opacity: 0;
+        transform: translateY(8px) scale(0.992);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .page-enter-active {
+      animation: pageCrossFade 0.32s var(--spring-easing) forwards;
+    }
+
+    @keyframes slideUpFade {
+      0% {
+        opacity: 0;
+        transform: translateY(16px) scale(0.96);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .slide-up-modal {
+      animation: slideUpFade 0.3s var(--spring-easing) forwards;
+    }
+
+    @keyframes equalizeBars {
+      0%, 100% { height: 4px; }
+      50% { height: 13px; }
+    }
+    .equalizer-bar-1 { animation: equalizeBars 0.75s ease-in-out infinite; }
+    .equalizer-bar-2 { animation: equalizeBars 0.55s ease-in-out infinite 0.18s; }
+    .equalizer-bar-3 { animation: equalizeBars 0.85s ease-in-out infinite 0.32s; }
+
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.7; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 8px rgba(74, 107, 93, 0.5); }
+    }
+    .pulse-live {
+      animation: pulseGlow 2.4s ease-in-out infinite;
+    }
+
+    @keyframes noteCardIn {
+      0% {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.97);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .note-insert {
+      animation: noteCardIn 0.3s var(--spring-easing) forwards;
+    }
+
+    /* Tactile Press State */
+    .tactile-btn {
+      transition: all 0.2s var(--spring-easing);
+    }
+    .tactile-btn:active {
+      transform: scale(0.94);
+    }
+
+    /* Window Controls Hover Glyphs */
+    .window-ctrl .ctrl-glyph {
+      opacity: 0;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      transform: scale(0.6);
+    }
+    .window-ctrl-group:hover .ctrl-glyph {
+      opacity: 0.85;
+      transform: scale(1);
+    }
+
+    /* Article Image Card Sheen & Zoom */
+    .article-img-wrap {
+      transition: transform 0.4s var(--spring-easing), box-shadow 0.4s var(--spring-easing);
+    }
+    .article-img-wrap:hover {
+      transform: scale(1.02);
+      box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(74, 107, 93, 0.2);
+    }
+
+    /* Serene Reader Mode overrides */
+    .reader-mode-on {
+      max-width: 680px !important;
+      margin: 0 auto !important;
+      font-family: 'Newsreader', serif !important;
+    }
+    .reader-mode-on p {
+      font-size: 1.2rem !important;
+      line-height: 1.85 !important;
+    }
+
+    /* Accessible reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, ::before, ::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-[#FAF9F5] font-sans text-[#1E2022] min-h-screen antialiased overflow-hidden select-none">
+<!-- Dynamic Top Loader Sweep Progress Bar -->
+<div class="fixed top-0 left-0 right-0 h-[3px] bg-transparent z-[130] pointer-events-none">
+<div class="h-full bg-gradient-to-r from-[#4A6B5D] via-[#5E81AC] to-[#4A6B5D] w-0 opacity-0 transition-all duration-300" id="loader-bar" style="transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);"></div>
+</div>
+<!-- Article Reading Progress Bar (Topmost ambient line) -->
+<div class="fixed top-0 left-0 right-0 h-[2px] bg-transparent z-[125] pointer-events-none">
+<div class="h-full bg-[#4A6B5D]/70 w-0 transition-all duration-150" id="read-progress"></div>
+</div>
+<!-- Toast Container with Spring Enter -->
+<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] flex flex-col items-center gap-2 pointer-events-none" id="toast-container"></div>
+<!-- Main Grid Shell Frame -->
+<div class="flex h-screen w-screen overflow-hidden">
+<!-- Left Zen Sidebar -->
+<aside class="w-64 bg-[#F4F4F0]/85 border-r border-[#E8E7E1] flex flex-col justify-between p-4 shrink-0 transition-all duration-300 backdrop-blur-xs select-none" id="sidebar">
+<div class="space-y-5 flex-1 overflow-y-auto pr-0.5">
+<!-- Window Traffic Lights & Quick Actions -->
+<div class="flex items-center justify-between pb-1">
+<div class="flex items-center gap-2 window-ctrl-group cursor-pointer py-1" title="Window controls">
+<span class="window-ctrl w-3 h-3 rounded-full bg-[#ED6A5E] hover:opacity-90 flex items-center justify-center transition-all tactile-btn text-[8px] font-bold text-[#620a00]" onclick="showToast('Close window (Simulated)')">
+<span class="ctrl-glyph leading-none">✕</span>
+</span>
+<span class="window-ctrl w-3 h-3 rounded-full bg-[#F5BE4F] hover:opacity-90 flex items-center justify-center transition-all tactile-btn text-[8px] font-bold text-[#684b00]" onclick="showToast('Minimize window (Simulated)')">
+<span class="ctrl-glyph leading-none">−</span>
+</span>
+<span class="window-ctrl w-3 h-3 rounded-full bg-[#61C554] hover:opacity-90 flex items-center justify-center transition-all tactile-btn text-[8px] font-bold text-[#095200]" onclick="toggleZenFocus()">
+<span class="ctrl-glyph leading-none">+</span>
+</span>
+</div>
+<div class="flex items-center gap-1">
+<button class="w-7 h-7 rounded-lg hover:bg-[#EFEEEA] text-[#787B80] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="openCmdPalette()" title="Command Palette (⌘K)">
+<span class="material-symbols-outlined text-[17px]">search</span>
+</button>
+<button class="w-7 h-7 rounded-lg hover:bg-[#EFEEEA] text-[#787B80] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="openSpeedDial()" title="New Tab (⌘T)">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+</div>
+<!-- Spaces Switcher with Sliding Pill Indicator -->
+<div>
+<div class="flex items-center justify-between mb-1.5 px-1">
+<span class="text-[11px] font-semibold uppercase tracking-wider text-[#787B80]">Spaces</span>
+</div>
+<div class="relative p-1 bg-[#EFEEEA]/90 rounded-xl flex text-xs font-medium border border-[#E8E7E1]/50 shadow-inner">
+<!-- Animated Sliding Pill Indicator -->
+<div class="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white rounded-lg shadow-xs transition-transform duration-300" id="space-pill" style="left: 4px; transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);"></div>
+<button class="relative z-10 flex-1 py-1.5 px-2.5 rounded-lg text-[#1E2022] flex items-center justify-center gap-1.5 transition-colors duration-200 tactile-btn" id="space-res-btn" onclick="switchSpace('research')">
+<span class="w-1.5 h-1.5 rounded-full bg-[#4A6B5D] pulse-live"></span>
+<span>Research</span>
+</button>
+<button class="relative z-10 flex-1 py-1.5 px-2.5 rounded-lg text-[#787B80] hover:text-[#1E2022] flex items-center justify-center gap-1.5 transition-colors duration-200 tactile-btn" id="space-stu-btn" onclick="switchSpace('studio')">
+<span class="w-1.5 h-1.5 rounded-full bg-[#5E81AC] opacity-80"></span>
+<span>Studio</span>
+</button>
+</div>
+</div>
+<!-- Favorites Dock -->
+<div class="space-y-1.5">
+<div class="flex items-center justify-between px-1">
+<span class="text-[11px] font-semibold uppercase tracking-wider text-[#787B80]">Favorites</span>
+<span class="text-[10px] text-[#787B80]" id="fav-count">5 pinned</span>
+</div>
+<div class="grid grid-cols-6 gap-1.5" id="favorites-grid">
+<!-- Populated by JS -->
+</div>
+</div>
+<!-- Open Tabs List with Equalizer for Audio Tab -->
+<div class="space-y-1">
+<div class="flex items-center justify-between px-1 mb-1">
+<span class="text-[11px] font-semibold uppercase tracking-wider text-[#787B80]">Open Tabs</span>
+<span class="text-[10px] text-[#787B80]" id="tab-count">5 tabs</span>
+</div>
+<nav class="space-y-1" id="tabs-list">
+<!-- Dynamic Real Website Tabs with active spring transitions -->
+</nav>
+</div>
+</div>
+<!-- Footer User Profile & Settings -->
+<div class="pt-3 border-t border-[#E8E7E1] flex items-center justify-between px-1">
+<div class="flex items-center gap-2 cursor-pointer p-1 rounded-lg hover:bg-[#EFEEEA] transition-colors tactile-btn" onclick="showToast('Zen Profile: Personal Space')">
+<div class="w-7 h-7 rounded-full bg-[#E8ECE9] text-[#325346] flex items-center justify-center font-bold text-xs shadow-xs">AZ</div>
+<span class="text-xs font-medium text-[#1E2022]">Zen Studio</span>
+</div>
+<div class="flex items-center gap-0.5 text-[#787B80]">
+<button class="w-7 h-7 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="toggleDownloads(event)" title="Downloads">
+<span class="material-symbols-outlined text-[17px]">download</span>
+</button>
+<button class="w-7 h-7 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="openSettingsModal()" title="Settings (⌘,)">
+<span class="material-symbols-outlined text-[17px]">settings</span>
+</button>
+<button class="w-7 h-7 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" id="sidebar-toggle-btn" onclick="toggleSidebar()" title="Collapse Sidebar">
+<span class="material-symbols-outlined text-[17px]">dock_to_right</span>
+</button>
+</div>
+</div>
+</aside>
+<!-- Main Viewport Area -->
+<div class="flex-1 flex flex-col h-full overflow-hidden bg-[#FAF9F5] relative">
+<!-- Top Omnibar & Navigation Header -->
+<header class="h-16 px-6 flex items-center justify-between gap-4 border-b border-[#E8E7E1]/80 bg-[#FAF9F5]/90 backdrop-blur-md shrink-0 z-20" id="main-header">
+<!-- History Navigation Buttons -->
+<div class="flex items-center gap-1 text-[#787B80] shrink-0">
+<button class="w-8 h-8 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all disabled:opacity-30 disabled:pointer-events-none tactile-btn" id="nav-back-btn" onclick="navBack()" title="Back (Alt+Left)">
+<span class="material-symbols-outlined text-[20px]">arrow_back</span>
+</button>
+<button class="w-8 h-8 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all disabled:opacity-30 disabled:pointer-events-none tactile-btn" id="nav-fwd-btn" onclick="navForward()" title="Forward (Alt+Right)">
+<span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+</button>
+<button class="w-8 h-8 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="navReload()" title="Reload (⌘R)">
+<span class="material-symbols-outlined text-[19px] transition-transform duration-500" id="reload-icon">refresh</span>
+</button>
+<button class="w-8 h-8 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="openSpeedDial()" title="Speed Dial Home">
+<span class="material-symbols-outlined text-[19px]">home</span>
+</button>
+</div>
+<!-- Omnibar Address Bar with Enhanced Focus Glow & Suggestions -->
+<div class="flex-1 max-w-2xl relative" id="omnibar-wrap">
+<form class="w-full flex items-center bg-white border border-[#E8E7E1] px-3.5 py-1.5 rounded-full shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-all duration-300 focus-within:border-[#4A6B5D] focus-within:shadow-[0_4px_20px_rgba(74,107,93,0.18)] focus-within:ring-2 focus-within:ring-[#4A6B5D]/20 hover:shadow-sm" onsubmit="handleOmnibarSubmit(event)">
+<div class="flex items-center gap-1.5 mr-2 shrink-0 cursor-pointer" onclick="showToast('TLS 1.3 Verified · Zen Strict Sandbox', 'success')" title="Connection Secure">
+<span class="w-4 h-4 flex items-center justify-center transition-transform hover:scale-110" id="omnibar-favicon"></span>
+<span class="material-symbols-outlined text-[#4A6B5D] text-[15px]">lock</span>
+</div>
+<span class="text-xs text-[#787B80] select-none shrink-0">https://</span>
+<input class="w-full bg-transparent border-0 p-0 text-xs text-[#1E2022] font-normal focus:ring-0 focus:outline-none placeholder:text-[#787B80]/70" id="omnibar-input" onblur="handleOmnibarBlur()" onfocus="showSuggestions(true)" placeholder="Search Google or enter website address..." spellcheck="false" type="text"/>
+<div class="ml-auto flex items-center gap-1 pl-2 shrink-0 text-[#787B80]">
+<!-- Copy Link Button with Morphing Checkmark -->
+<button class="w-6 h-6 rounded-full hover:bg-[#EFEEEA] hover:text-[#4A6B5D] flex items-center justify-center transition-all tactile-btn" id="copy-btn" onclick="copyCurrentUrl()" title="Copy URL" type="button">
+<span class="material-symbols-outlined text-[15px] transition-transform duration-200" id="copy-icon">link</span>
+</button>
+<!-- Bookmark Star with Bounce Sparkle -->
+<button class="w-6 h-6 rounded-full hover:bg-[#EFEEEA] flex items-center justify-center transition-all tactile-btn" onclick="toggleBookmarkCurrent(event)" title="Bookmark page" type="button">
+<span class="material-symbols-outlined text-[16px] transition-colors" id="star-icon">star</span>
+</button>
+<!-- Reader Mode Toggle -->
+<button class="w-6 h-6 rounded-full hover:bg-[#EFEEEA] hover:text-[#4A6B5D] flex items-center justify-center transition-all tactile-btn" id="reader-btn" onclick="toggleReaderMode()" title="Toggle Clean Reader View" type="button">
+<span class="material-symbols-outlined text-[15px]">chrome_reader_mode</span>
+</button>
+</div>
+</form>
+<!-- Omnibar Animated Suggestions Dropdown -->
+<div class="hidden absolute top-12 left-0 right-0 bg-white/95 backdrop-blur-md border border-[#E8E7E1] rounded-2xl shadow-2xl z-50 p-2 text-xs slide-up-modal" id="omnibar-suggestions">
+<div class="px-3 py-1.5 text-[10px] uppercase font-semibold text-[#787B80] border-b border-[#E8E7E1]/70 pb-1 flex justify-between items-center">
+<span>Quick Suggestions</span>
+<span class="text-[9px] bg-[#F4F4F0] px-1.5 py-0.5 rounded text-[#787B80]">Enter to Go</span>
+</div>
+<div class="space-y-0.5 pt-1.5">
+<div class="px-3 py-2 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex items-center gap-2.5 transition-colors tactile-btn" onmousedown="loadSite('wikipedia'); showSuggestions(false);">
+<span class="w-6 h-6 rounded-md bg-[#EFEEEA] flex items-center justify-center font-serif font-bold text-xs text-[#1E2022]">W</span>
+<div><p class="font-medium text-[#1E2022]">Wikipedia — Bauhaus Movement</p><p class="text-[10px] text-[#787B80]">en.wikipedia.org/wiki/Bauhaus</p></div>
+</div>
+<div class="px-3 py-2 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex items-center gap-2.5 transition-colors tactile-btn" onmousedown="loadSite('github'); showSuggestions(false);">
+<span class="w-6 h-6 rounded-md bg-zinc-900 text-white flex items-center justify-center text-[11px]">▲</span>
+<div><p class="font-medium text-[#1E2022]">GitHub — vercel/next.js</p><p class="text-[10px] text-[#787B80]">github.com/vercel/next.js</p></div>
+</div>
+<div class="px-3 py-2 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex items-center gap-2.5 transition-colors tactile-btn" onmousedown="loadSite('substack'); showSuggestions(false);">
+<span class="w-6 h-6 rounded-md bg-[#ff6719] text-white flex items-center justify-center text-[11px] font-bold">S</span>
+<div><p class="font-medium text-[#1E2022]">Substack — The Diff Newsletter</p><p class="text-[10px] text-[#787B80]">thediff.co/p/the-nature-of-spatial-computing</p></div>
+</div>
+<div class="px-3 py-2 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex items-center gap-2.5 transition-colors tactile-btn" onmousedown="loadSite('framer'); showSuggestions(false);">
+<span class="w-6 h-6 rounded-md bg-[#0055ff] text-white flex items-center justify-center text-[11px] font-bold">F</span>
+<div><p class="font-medium text-[#1E2022]">Framer — Design System Showcase</p><p class="text-[10px] text-[#787B80]">framer.com/showcase/zen-canvas</p></div>
+</div>
+<div class="px-3 py-2 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex items-center gap-2.5 transition-colors tactile-btn" onmousedown="loadSite('hackernews'); showSuggestions(false);">
+<span class="w-6 h-6 rounded-md bg-[#ff6600] text-white flex items-center justify-center text-[11px] font-bold">Y</span>
+<div><p class="font-medium text-[#1E2022]">Hacker News — Tech &amp; Design</p><p class="text-[10px] text-[#787B80]">news.ycombinator.com</p></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Top Right Utility Buttons -->
+<div class="flex items-center gap-1.5 relative shrink-0 text-[#787B80]">
+<button class="w-8 h-8 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all relative tactile-btn" onclick="toggleDownloads(event)" title="Downloads">
+<span class="material-symbols-outlined text-[18px]">download</span>
+<span class="w-1.5 h-1.5 rounded-full bg-[#4A6B5D] absolute top-1.5 right-1.5" id="downloads-badge"></span>
+</button>
+<button class="w-8 h-8 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="toggleExtensions(event)" title="Extensions">
+<span class="material-symbols-outlined text-[18px]">extension</span>
+</button>
+<button class="w-8 h-8 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="toggleHistory(event)" title="Browsing History">
+<span class="material-symbols-outlined text-[18px]">history</span>
+</button>
+<button class="w-8 h-8 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="openShareModal()" title="Share page">
+<span class="material-symbols-outlined text-[18px]">share</span>
+</button>
+<div class="h-4 w-[1px] bg-[#E8E7E1] mx-0.5"></div>
+<!-- Scratchpad Toggle Button -->
+<button class="px-2.5 py-1.5 rounded-full border border-[#E8E7E1] bg-white hover:bg-[#F4F4F0] text-xs font-medium text-[#1E2022] flex items-center gap-1.5 shadow-xs transition-all tactile-btn" id="scratchpad-toggle-btn" onclick="toggleScratchpad()">
+<span class="material-symbols-outlined text-[16px] text-[#4A6B5D]">edit_note</span> Scratchpad
+        </button>
+<button class="w-8 h-8 rounded-full border border-[#E8E7E1] bg-white hover:bg-[#F4F4F0] text-[#1E2022] flex items-center justify-center shadow-xs transition-all tactile-btn" onclick="toggleZenFocus()" title="Zen Fullscreen (F11)">
+<span class="material-symbols-outlined text-[17px]">fullscreen</span>
+</button>
+<button class="w-8 h-8 rounded-lg hover:bg-[#EFEEEA] hover:text-[#1E2022] flex items-center justify-center transition-all tactile-btn" onclick="toggleMoreMenu(event)" title="More options">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+<!-- DROPDOWN: Downloads -->
+<div class="hidden absolute top-11 right-12 w-80 bg-white border border-[#E8E7E1] rounded-2xl shadow-xl z-50 p-4 text-xs slide-up-modal" id="dropdown-downloads">
+<div class="flex items-center justify-between pb-2 border-b border-[#E8E7E1]">
+<span class="font-semibold text-[#1E2022] flex items-center gap-1.5"><span class="material-symbols-outlined text-[17px] text-[#4A6B5D]">download</span> Downloads</span>
+<button class="text-[#787B80] hover:text-[#1E2022]" onclick="clearDownloads()">Clear</button>
+</div>
+<div class="space-y-2 pt-2.5">
+<div class="p-2 rounded-xl bg-[#F4F4F0] flex items-center justify-between">
+<div class="truncate">
+<p class="font-medium text-[#1E2022] truncate">zen-browser-spec.pdf</p>
+<p class="text-[10px] text-[#787B80]">3.2 MB · Completed</p>
+</div>
+<button class="text-[#4A6B5D] p-1 tactile-btn" onclick="showToast('Opened in file preview')"><span class="material-symbols-outlined text-[16px]">folder_open</span></button>
+</div>
+<div class="p-2 rounded-xl bg-[#F4F4F0] flex items-center justify-between">
+<div class="truncate">
+<p class="font-medium text-[#1E2022] truncate">next-15.1.0-canary.zip</p>
+<p class="text-[10px] text-[#787B80]">18.4 MB · Completed</p>
+</div>
+<button class="text-[#4A6B5D] p-1 tactile-btn" onclick="showToast('Opened in file preview')"><span class="material-symbols-outlined text-[16px]">folder_open</span></button>
+</div>
+</div>
+</div>
+<!-- DROPDOWN: Extensions -->
+<div class="hidden absolute top-11 right-10 w-72 bg-white border border-[#E8E7E1] rounded-2xl shadow-xl z-50 p-4 text-xs slide-up-modal" id="dropdown-extensions">
+<div class="flex items-center justify-between pb-2 border-b border-[#E8E7E1]">
+<span class="font-semibold text-[#1E2022]">Extensions</span>
+<button class="text-[#4A6B5D] font-medium" onclick="showToast('Opening Chrome Web Store...')">Store</button>
+</div>
+<div class="space-y-3 pt-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[#4A6B5D] text-[18px]">shield</span>
+<div><p class="font-medium text-[#1E2022]">uBlock Origin</p><p class="text-[10px] text-[#4A6B5D]">18 ads blocked</p></div>
+</div>
+<input checked="" class="rounded border-[#E8E7E1] text-[#4A6B5D] focus:ring-0" onchange="showToast('uBlock shield updated')" type="checkbox"/>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[#5E81AC] text-[18px]">password</span>
+<div><p class="font-medium text-[#1E2022]">1Password</p><p class="text-[10px] text-[#787B80]">Vault unlocked</p></div>
+</div>
+<input checked="" class="rounded border-[#E8E7E1] text-[#4A6B5D] focus:ring-0" onchange="showToast('1Password autofill active')" type="checkbox"/>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[#787B80] text-[18px]">dark_mode</span>
+<div><p class="font-medium text-[#1E2022]">Dark Reader</p><p class="text-[10px] text-[#787B80]">Inverted tone</p></div>
+</div>
+<input class="rounded border-[#E8E7E1] text-[#4A6B5D] focus:ring-0" onchange="toggleDarkReader(this)" type="checkbox"/>
+</div>
+</div>
+</div>
+<!-- DROPDOWN: History -->
+<div class="hidden absolute top-11 right-8 w-80 bg-white border border-[#E8E7E1] rounded-2xl shadow-xl z-50 p-4 text-xs slide-up-modal" id="dropdown-history">
+<div class="flex items-center justify-between pb-2 border-b border-[#E8E7E1]">
+<span class="font-semibold text-[#1E2022]">Browsing History</span>
+<button class="text-[#787B80] hover:text-[#1E2022]" onclick="clearHistory()">Clear</button>
+</div>
+<div class="space-y-1 pt-2" id="history-items">
+<!-- Dynamically populated -->
+</div>
+</div>
+<!-- DROPDOWN: More Options & Zoom -->
+<div class="hidden absolute top-11 right-0 w-64 bg-white border border-[#E8E7E1] rounded-2xl shadow-xl z-50 p-2 text-xs slide-up-modal" id="dropdown-more">
+<div class="flex items-center justify-between px-3 py-2 border-b border-[#E8E7E1] mb-1">
+<span class="font-medium text-[#1E2022] flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px]">zoom_in</span> Zoom</span>
+<div class="flex items-center gap-1 bg-[#F4F4F0] rounded-lg p-0.5">
+<button class="w-6 h-6 rounded hover:bg-[#EFEEEA] font-bold tactile-btn" onclick="adjustZoom(-10)">−</button>
+<span class="font-mono text-[11px] px-1" id="zoom-val">100%</span>
+<button class="w-6 h-6 rounded hover:bg-[#EFEEEA] font-bold tactile-btn" onclick="adjustZoom(10)">+</button>
+</div>
+</div>
+<button class="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-[#F4F4F0] text-left tactile-btn" onclick="openSpeedDial(); closeDropdowns();">
+<span class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">tab</span> Speed Dial New Tab</span>
+<span class="text-[10px] text-[#787B80]">⌘T</span>
+</button>
+<button class="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-[#F4F4F0] text-left tactile-btn" onclick="openCmdPalette(); closeDropdowns();">
+<span class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">search</span> Command Palette</span>
+<span class="text-[10px] text-[#787B80]">⌘K</span>
+</button>
+<button class="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-[#F4F4F0] text-left tactile-btn" onclick="toggleZenFocus(); closeDropdowns();">
+<span class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px] text-[#4A6B5D]">fullscreen</span> Fullscreen Sanctuary</span>
+<span class="text-[10px] text-[#787B80]">F11</span>
+</button>
+<button class="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-[#F4F4F0] text-left tactile-btn" onclick="toggleDevTools(); closeDropdowns();">
+<span class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px] text-[#4A6B5D]">developer_mode</span> Inspect Element</span>
+<span class="text-[10px] text-[#787B80]">⌥⌘I</span>
+</button>
+<button class="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-[#F4F4F0] text-left tactile-btn" onclick="openSettingsModal(); closeDropdowns();">
+<span class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">tune</span> Preferences</span>
+<span class="text-[10px] text-[#787B80]">⌘,</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Main Browser Canvas Web Content Viewport with Live Crossfade Wrapper -->
+<main class="flex-1 overflow-y-auto px-4 md:px-8 py-8 flex justify-center scroll-smooth relative" id="web-viewport" onscroll="handleScroll()">
+<div class="w-full max-w-4xl transition-all duration-300 page-enter-active" id="content-card">
+<!-- Active Website Dynamic Injection -->
+</div>
+</main>
+<!-- Embedded DevTools Inspector Dock -->
+<div class="hidden border-t border-[#E8E7E1] bg-white h-52 flex flex-col font-mono text-xs z-30 transition-all duration-300" id="devtools-panel">
+<div class="flex items-center justify-between px-4 py-1.5 bg-[#F4F4F0] border-b border-[#E8E7E1] text-[#787B80]">
+<div class="flex items-center gap-4">
+<span class="font-bold text-[#4A6B5D] flex items-center gap-1"><span class="material-symbols-outlined text-[15px]">code</span> DevTools</span>
+<span class="text-[#1E2022] font-semibold">Elements</span>
+<span class="hover:text-[#1E2022] cursor-pointer" onclick="showToast('Console: 0 errors')">Console (0 errors)</span>
+<span class="hover:text-[#1E2022] cursor-pointer" onclick="showToast('Network: 200 OK')">Network (200 OK)</span>
+</div>
+<button class="hover:text-[#1E2022] tactile-btn" onclick="toggleDevTools()"><span class="material-symbols-outlined text-[16px]">close</span></button>
+</div>
+<div class="flex-1 p-3 overflow-y-auto bg-white space-y-1 text-[#1E2022] text-[11px]">
+<p class="text-[#787B80]">&lt;!DOCTYPE html&gt;</p>
+<p class="text-[#4A6B5D]">&lt;html lang="en" class="zen-rendered-page"&gt;</p>
+<p class="pl-4 text-[#787B80]">&lt;head&gt;&lt;title&gt;<span class="text-[#5E81AC]" id="dev-title">Wikipedia — Bauhaus</span>&lt;/title&gt;&lt;/head&gt;</p>
+<p class="pl-4 text-[#4A6B5D]">&lt;body class="antialiased selection:bg-[#E8ECE9]"&gt;</p>
+<p class="pl-8 text-[#1E2022]">&lt;main id="active-web-sandbox" data-secure="tls-1.3"&gt; ... &lt;/main&gt;</p>
+<p class="pl-4 text-[#4A6B5D]">&lt;/body&gt;</p>
+<p class="text-[#4A6B5D]">&lt;/html&gt;</p>
+</div>
+</div>
+<!-- Zen Fullscreen Exit Indicator Button -->
+<button class="hidden absolute top-4 right-6 z-[140] px-3.5 py-1.5 rounded-full bg-white/95 backdrop-blur-md border border-[#E8E7E1] shadow-xl text-xs font-medium text-[#1E2022] hover:bg-[#F4F4F0] tactile-btn flex items-center gap-1.5 transition-all" id="zen-restore-btn" onclick="toggleZenFocus()">
+<span class="material-symbols-outlined text-[16px] text-[#4A6B5D]">fullscreen_exit</span> Exit Focus (Esc)
+    </button>
+</div>
+<!-- Floating Scratchpad Drawer Widget with Spring Transition -->
+<aside class="fixed bottom-6 right-8 w-80 p-4 rounded-2xl bg-white border border-[#E8E7E1] shadow-2xl z-50 space-y-3 transition-all duration-300 slide-up-modal" id="scratchpad-box" style="transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);">
+<div class="flex items-center justify-between pb-1">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[#4A6B5D] text-[18px]">edit_note</span>
+<span class="text-xs font-semibold uppercase tracking-wider text-[#1E2022]">Quick Note</span>
+<span class="text-[10px] bg-[#F4F4F0] px-1.5 py-0.5 rounded-full text-[#787B80] font-mono transition-all" id="notes-badge">1 saved</span>
+</div>
+<button class="w-6 h-6 rounded-full hover:bg-[#F4F4F0] text-[#787B80] flex items-center justify-center tactile-btn" onclick="toggleScratchpad()">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+</div>
+<div class="bg-[#F4F4F0]/80 rounded-xl p-3 border border-[#E8E7E1] focus-within:border-[#4A6B5D] transition-colors">
+<textarea class="w-full bg-transparent border-0 outline-none text-xs text-[#1E2022] placeholder:text-[#787B80] resize-none leading-relaxed p-0 focus:ring-0" id="note-input" placeholder="Jot reference notes while browsing..." rows="3"></textarea>
+</div>
+<div class="flex items-center justify-between pt-0.5">
+<span class="text-[10px] text-[#787B80]">Saved locally</span>
+<button class="px-3.5 py-1.5 rounded-lg bg-[#4A6B5D] text-white hover:bg-[#325346] text-xs font-medium transition-all shadow-xs tactile-btn flex items-center gap-1" onclick="saveNote()">
+<span>Save Note</span>
+</button>
+</div>
+<div class="border-t border-[#E8E7E1] pt-2 max-h-36 overflow-y-auto space-y-1.5 text-[11px]" id="notes-list-box">
+<!-- Notes items dynamically inserted here with animation -->
+</div>
+</aside>
+</div>
+<!-- Command Palette Modal (⌘K) -->
+<div class="fixed inset-0 bg-[#1E2022]/20 backdrop-blur-xs z-[110] hidden flex items-start justify-center pt-24 p-4 transition-all" id="cmd-modal" onclick="handleCmdBackdrop(event)">
+<div class="bg-white border border-[#E8E7E1] rounded-2xl w-full max-w-xl shadow-2xl p-3 space-y-2 slide-up-modal">
+<div class="flex items-center gap-2.5 px-3 py-2 border-b border-[#E8E7E1]">
+<span class="material-symbols-outlined text-[#787B80] text-[20px]">search</span>
+<input class="w-full bg-transparent border-0 text-sm focus:ring-0 focus:outline-none p-0 text-[#1E2022] placeholder:text-[#787B80]" id="cmd-query" oninput="filterCmdList(this.value)" placeholder="Search websites, tabs, or browser actions..." type="text"/>
+<span class="text-[10px] bg-[#F4F4F0] px-2 py-0.5 rounded text-[#787B80]">ESC</span>
+</div>
+<div class="space-y-1 text-xs" id="cmd-list-items">
+<div class="p-2.5 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex justify-between items-center tactile-btn" onclick="loadSite('wikipedia'); closeCmdPalette();">
+<span class="flex items-center gap-2 font-medium"><span class="w-5 h-5 rounded bg-[#F4F4F0] flex items-center justify-center font-serif font-bold text-xs">W</span> Wikipedia — Bauhaus Movement</span>
+<span class="text-[10px] text-[#787B80]">Tab 1</span>
+</div>
+<div class="p-2.5 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex justify-between items-center tactile-btn" onclick="loadSite('github'); closeCmdPalette();">
+<span class="flex items-center gap-2 font-medium"><span>🐙</span> GitHub — vercel/next.js</span>
+<span class="text-[10px] text-[#787B80]">Tab 2</span>
+</div>
+<div class="p-2.5 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex justify-between items-center tactile-btn" onclick="loadSite('substack'); closeCmdPalette();">
+<span class="flex items-center gap-2 font-medium"><span class="text-[#ff6719] font-bold">S</span> Substack — The Diff Newsletter</span>
+<span class="text-[10px] text-[#787B80]">Tab 3</span>
+</div>
+<div class="p-2.5 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex justify-between items-center tactile-btn" onclick="loadSite('framer'); closeCmdPalette();">
+<span class="flex items-center gap-2 font-medium"><span class="text-[#0055ff] font-bold">F</span> Framer — Showcase Gallery</span>
+<span class="text-[10px] text-[#787B80]">Tab 4</span>
+</div>
+<div class="p-2.5 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex justify-between items-center tactile-btn" onclick="loadSite('hackernews'); closeCmdPalette();">
+<span class="flex items-center gap-2 font-medium"><span class="text-[#ff6600] font-bold">Y</span> Hacker News — Frontpage</span>
+<span class="text-[10px] text-[#787B80]">Tab 5</span>
+</div>
+<div class="p-2.5 rounded-xl hover:bg-[#F4F4F0] cursor-pointer flex justify-between items-center text-[#4A6B5D] border-t border-[#E8E7E1] mt-1 pt-2 tactile-btn" onclick="toggleZenFocus(); closeCmdPalette();">
+<span class="flex items-center gap-2 font-medium"><span class="material-symbols-outlined text-[16px]">fullscreen</span> Zen Focus Mode</span>
+<span class="text-[10px] text-[#787B80]">F11</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Preferences / Settings Modal -->
+<div class="fixed inset-0 bg-[#1E2022]/20 backdrop-blur-xs z-[100] hidden flex items-center justify-center p-4" id="settings-modal" onclick="handleSettingsBackdrop(event)">
+<div class="bg-white border border-[#E8E7E1] rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4 slide-up-modal">
+<div class="flex items-center justify-between border-b border-[#E8E7E1] pb-3">
+<h3 class="text-sm font-semibold text-[#1E2022] flex items-center gap-2"><span class="material-symbols-outlined text-[#4A6B5D] text-[20px]">tune</span> Preferences</h3>
+<button class="text-[#787B80] hover:text-[#1E2022] tactile-btn" onclick="closeSettingsModal()"><span class="material-symbols-outlined text-[18px]">close</span></button>
+</div>
+<div class="space-y-3 text-xs">
+<div class="flex justify-between items-center">
+<div><p class="font-medium text-[#1E2022]">Warm Paper Canvas Tone</p><p class="text-[10px] text-[#787B80]">Alabaster calm hue</p></div>
+<input checked="" class="rounded border-[#E8E7E1] text-[#4A6B5D]" onchange="showToast('Preference saved')" type="checkbox"/>
+</div>
+<div class="flex justify-between items-center">
+<div><p class="font-medium text-[#1E2022]">Strict Ad &amp; Tracker Shield</p><p class="text-[10px] text-[#787B80]">Block analytics telemetry</p></div>
+<input checked="" class="rounded border-[#E8E7E1] text-[#4A6B5D]" onchange="showToast('Shield active')" type="checkbox"/>
+</div>
+</div>
+<div class="pt-2 flex justify-end">
+<button class="px-4 py-1.5 rounded-xl bg-[#F4F4F0] hover:bg-[#EFEEEA] text-xs font-medium tactile-btn" onclick="closeSettingsModal()">Done</button>
+</div>
+</div>
+</div>
+<!-- Logic & Interaction Controller -->
+<script>
+  const SITES = {
+    'wikipedia': {
+      id: 'wikipedia',
+      title: 'Wikipedia — Bauhaus Movement',
+      url: 'en.wikipedia.org/wiki/Bauhaus',
+      icon: '<span class="font-serif font-bold text-xs">W</span>',
+      body: `
+        <article class="bg-white border border-[#E8E7E1] rounded-2xl p-6 md:p-10 shadow-xs space-y-6">
+          <div class="border-b border-[#E8E7E1] pb-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <span class="w-8 h-8 rounded-lg bg-[#F4F4F0] flex items-center justify-center font-serif font-bold text-base text-[#1E2022]">W</span>
+              <div>
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-[#787B80]">Wikipedia, The Free Encyclopedia</span>
+                <p class="text-xs text-[#787B80]">Article ID: 1218204928 · Verified</p>
+              </div>
+            </div>
+            <span class="text-xs text-[#4A6B5D] flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">verified</span> Peer Reviewed</span>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-2 space-y-5">
+              <h1 class="font-serif text-3xl md:text-4xl text-[#1E2022]">Staatliches Bauhaus</h1>
+              <p class="text-sm md:text-base leading-relaxed text-[#1E2022]">
+                The <strong>Bauhaus</strong> was a German art school operational from 1919 to 1933 that combined crafts and the fine arts. The school became famous for its approach to design, which attempted to unify individual artistic vision with the principles of industrial mass production.
+              </p>
+              <!-- Interactive Sheen & Zoom Image Card -->
+              <div class="article-img-wrap rounded-xl overflow-hidden border border-[#E8E7E1] bg-[#F4F4F0] cursor-pointer">
+                <img src="https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80" alt="Bauhaus architecture" class="w-full h-56 object-cover transition-transform duration-500 hover:scale-105"/>
+                <div class="p-2.5 bg-white text-center text-xs text-[#787B80] border-t border-[#E8E7E1]">
+                  The Bauhaus building in Dessau, designed by Walter Gropius (1925–1926)
+                </div>
+              </div>
+              <div class="p-4 rounded-xl bg-[#F4F4F0] border border-[#E8E7E1] space-y-2 text-xs">
+                <span class="font-bold uppercase tracking-wider text-[#787B80]">Contents</span>
+                <ol class="list-decimal list-inside text-[#4A6B5D] space-y-1 font-medium">
+                  <li><a href="#" class="hover:underline">Manifesto & Foundation (Weimar 1919)</a></li>
+                  <li><a href="#" class="hover:underline">The Dessau Golden Era</a></li>
+                  <li><a href="#" class="hover:underline">Architectural Legacy & Minimalist Typography</a></li>
+                </ol>
+              </div>
+              <div class="space-y-2">
+                <h2 class="font-serif text-xl font-medium">Form Follows Function</h2>
+                <p class="text-sm leading-relaxed text-[#4A4D52]">
+                  Gropius believed that ornamental flourishes masked the innate elegance of pure craftsmanship. Tubular steel, unembellished glass, and bare concrete formed the vocabulary that inspired modern UI architecture worldwide.
+                </p>
+              </div>
+            </div>
+            <div class="lg:col-span-1">
+              <div class="bg-[#F4F4F0] border border-[#E8E7E1] rounded-xl p-4 text-xs space-y-3">
+                <div class="text-center border-b border-[#E8E7E1] pb-2">
+                  <h3 class="font-bold text-sm">Staatliches Bauhaus</h3>
+                  <span class="text-[10px] text-[#787B80]">Historic Art Institute</span>
+                </div>
+                <div class="flex justify-between py-1 border-b border-[#E8E7E1]/60"><span class="text-[#787B80]">Established</span><span class="font-medium">1919</span></div>
+                <div class="flex justify-between py-1 border-b border-[#E8E7E1]/60"><span class="text-[#787B80]">Founder</span><span class="font-medium text-[#4A6B5D]">Walter Gropius</span></div>
+                <div class="flex justify-between py-1 border-b border-[#E8E7E1]/60"><span class="text-[#787B80]">Movement</span><span class="font-medium text-[#5E81AC]">Modernism</span></div>
+                <div class="flex justify-between py-1"><span class="text-[#787B80]">Faculty</span><span class="font-medium text-right">Klee, Kandinsky</span></div>
+              </div>
+            </div>
+          </div>
+        </article>
+      `
+    },
+    'github': {
+      id: 'github',
+      title: 'GitHub — vercel/next.js',
+      url: 'github.com/vercel/next.js',
+      icon: '<span class="text-zinc-900">🐙</span>',
+      body: `
+        <article class="bg-white border border-[#E8E7E1] rounded-2xl p-6 md:p-8 shadow-xs space-y-6">
+          <div class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-[#E8E7E1]">
+            <div class="flex items-center gap-2 text-sm">
+              <span class="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center font-bold text-xs">▲</span>
+              <span class="text-[#4A6B5D] font-medium">vercel</span><span class="text-[#787B80]">/</span>
+              <span class="font-bold text-[#1E2022]">next.js</span>
+              <span class="px-2 py-0.5 rounded-full border border-[#E8E7E1] text-[11px] text-[#787B80]">Public</span>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+              <button onclick="showToast('Repo starred ✨')" class="px-3 py-1.5 rounded-lg border border-[#E8E7E1] bg-[#F4F4F0] hover:bg-[#EFEEEA] flex items-center gap-1 font-medium tactile-btn">
+                <span class="material-symbols-outlined text-[15px] text-amber-500">star</span> Star <span class="font-mono text-[#787B80] ml-1">121,489</span>
+              </button>
+              <button onclick="showToast('Forked repo')" class="px-3 py-1.5 rounded-lg border border-[#E8E7E1] bg-[#F4F4F0] hover:bg-[#EFEEEA] flex items-center gap-1 font-medium tactile-btn">
+                <span class="material-symbols-outlined text-[15px]">fork_right</span> Fork <span class="font-mono text-[#787B80] ml-1">26.1k</span>
+              </button>
+            </div>
+          </div>
+          <p class="text-sm text-[#4A4D52]">The React Framework for the Web. Used by OpenAI, Netflix, GitHub, Airbnb, and scale teams worldwide.</p>
+          <div class="border border-[#E8E7E1] rounded-xl overflow-hidden font-mono text-xs">
+            <div class="bg-[#F4F4F0] px-4 py-2 border-b border-[#E8E7E1] flex justify-between text-[#787B80]">
+              <span>packages / next / src / server</span><span>v15.1.0-canary</span>
+            </div>
+            <div class="divide-y divide-[#E8E7E1] bg-white">
+              <div class="px-4 py-2 flex justify-between hover:bg-[#F4F4F0]/60 cursor-pointer transition-colors">
+                <span class="flex items-center gap-2 text-[#1E2022]"><span class="material-symbols-outlined text-[16px] text-[#5E81AC]">folder</span> packages</span>
+                <span class="text-[#787B80] text-[11px]">turbopack runtime engine</span>
+              </div>
+              <div class="px-4 py-2 flex justify-between hover:bg-[#F4F4F0]/60 cursor-pointer transition-colors">
+                <span class="flex items-center gap-2 text-[#1E2022]"><span class="material-symbols-outlined text-[16px] text-[#5E81AC]">folder</span> docs</span>
+                <span class="text-[#787B80] text-[11px]">Update Server Actions documentation</span>
+              </div>
+              <div class="px-4 py-2 flex justify-between hover:bg-[#F4F4F0]/60 cursor-pointer transition-colors">
+                <span class="flex items-center gap-2 text-[#1E2022]"><span class="material-symbols-outlined text-[16px] text-[#787B80]">description</span> README.md</span>
+                <span class="text-[#787B80] text-[11px]">release notes for 15.1</span>
+              </div>
+            </div>
+          </div>
+          <div class="border border-[#E8E7E1] rounded-xl p-5 bg-white space-y-3">
+            <h3 class="font-bold text-sm flex items-center gap-2"><span class="material-symbols-outlined text-[17px]">menu_book</span> Quickstart</h3>
+            <div class="bg-[#F4F4F0] p-3 rounded-xl flex items-center justify-between font-mono text-xs border border-[#E8E7E1]">
+              <code>npx create-next-app@latest my-zen-app</code>
+              <button onclick="navigator.clipboard.writeText('npx create-next-app@latest my-zen-app'); showToast('Command copied!');" class="text-[#4A6B5D] hover:underline font-semibold tactile-btn">Copy</button>
+            </div>
+          </div>
+        </article>
+      `
+    },
+    'substack': {
+      id: 'substack',
+      title: 'Substack — The Diff by Byrne Hobart',
+      url: 'thediff.co/p/the-nature-of-spatial-computing',
+      icon: '<span class="font-bold text-xs text-[#ff6719]">S</span>',
+      hasAudio: true,
+      body: `
+        <article class="bg-white border border-[#E8E7E1] rounded-2xl p-6 md:p-12 shadow-xs space-y-6">
+          <div class="border-b border-[#E8E7E1] pb-5 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <span class="w-10 h-10 rounded-full bg-[#ff6719] text-white flex items-center justify-center font-serif font-black text-lg shadow-sm">D</span>
+              <div>
+                <h3 class="font-serif font-bold text-base text-[#1E2022]">The Diff</h3>
+                <p class="text-xs text-[#787B80]">Tracking inflections in technology and economics</p>
+              </div>
+            </div>
+            <button onclick="showToast('Subscribed to The Diff newsletter!')" class="px-4 py-1.5 rounded-full bg-[#ff6719] text-white text-xs font-semibold shadow-xs hover:bg-[#e05810] transition-colors tactile-btn">
+              Subscribe ($20/mo)
+            </button>
+          </div>
+          <div class="space-y-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-[#ff6719]">Longform Essay</span>
+            <h1 class="font-serif text-3xl md:text-4xl text-[#1E2022] leading-snug">The Nature of Spatial Computing and Cognitive Ergonomics</h1>
+            <p class="text-xs text-[#787B80] pt-1">Byrne Hobart · October 24, 2025 · 8 min read</p>
+          </div>
+          <div class="bg-[#F4F4F0] border border-[#E8E7E1] p-3.5 rounded-xl flex items-center gap-3">
+            <button onclick="showToast('Audio playback toggled')" class="w-8 h-8 rounded-full bg-[#ff6719] text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-transform tactile-btn">
+              <span class="material-symbols-outlined text-[18px]">play_arrow</span>
+            </button>
+            <div class="flex-1 text-xs">
+              <div class="flex justify-between font-medium text-[#1E2022] mb-1">
+                <span class="flex items-center gap-1.5">
+                  <span>Author Reading (Spatial Edition)</span>
+                  <span class="flex items-end gap-0.5 h-3">
+                    <span class="w-0.5 bg-[#ff6719] rounded-full equalizer-bar-1"></span>
+                    <span class="w-0.5 bg-[#ff6719] rounded-full equalizer-bar-2"></span>
+                    <span class="w-0.5 bg-[#ff6719] rounded-full equalizer-bar-3"></span>
+                  </span>
+                </span>
+                <span class="text-[#787B80]">14:20</span>
+              </div>
+              <div class="h-1.5 bg-[#EFEEEA] rounded-full overflow-hidden">
+                <div class="h-full bg-[#ff6719] w-1/3 transition-all"></div>
+              </div>
+            </div>
+          </div>
+          <div class="space-y-4 font-serif text-base leading-relaxed text-[#1E2022]">
+            <p>Every major leap in software architecture is ultimately an arbitrage on human attentional bandwidth. When computing migrates away from heavy rectangular frames, the limiting constraint ceases to be silicon speed; it becomes perceptual calm.</p>
+            <blockquote class="pl-4 border-l-2 border-[#ff6719] italic text-[#4A4D52]">"The next winning interface is one that ruthlessly discards noisy chrome so the reader dwells within uninterrupted thought."</blockquote>
+          </div>
+        </article>
+      `
+    },
+    'framer': {
+      id: 'framer',
+      title: 'Framer — Design System Showcase',
+      url: 'framer.com/showcase/zen-canvas',
+      icon: '<span class="font-bold text-xs text-[#0055ff]">F</span>',
+      body: `
+        <article class="bg-white border border-[#E8E7E1] rounded-2xl p-6 md:p-10 shadow-xs space-y-6">
+          <div class="flex items-center justify-between border-b border-[#E8E7E1] pb-4">
+            <div class="flex items-center gap-2">
+              <span class="w-7 h-7 rounded bg-[#0055ff] text-white flex items-center justify-center font-bold text-xs">F</span>
+              <h2 class="text-sm font-semibold">Framer Showcase Canvas</h2>
+            </div>
+            <button onclick="copyCurrentUrl()" class="px-3 py-1.5 rounded-lg border border-[#E8E7E1] text-xs font-medium hover:bg-[#F4F4F0] tactile-btn">Share Template</button>
+          </div>
+          <div class="space-y-1">
+            <span class="text-xs font-semibold uppercase tracking-wider text-[#5E81AC]">Design Tokens & Mechanics</span>
+            <h1 class="text-2xl md:text-3xl font-bold">Zen UI Design System v2.4</h1>
+            <p class="text-xs text-[#787B80]">Built with kinetic spring dampeners and tactile paper tokens.</p>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="p-3 rounded-xl bg-[#FAF9F5] border border-[#E8E7E1] cursor-pointer hover:scale-105 active:scale-95 transition-all" onclick="showToast('Copied: #FAF9F5')">
+              <div class="h-10 rounded-lg bg-[#FAF9F5] border border-zinc-200 mb-2"></div>
+              <p class="text-xs font-medium">Alabaster</p><p class="text-[10px] text-[#787B80] font-mono">#FAF9F5</p>
+            </div>
+            <div class="p-3 rounded-xl bg-[#F4F4F0] border border-[#E8E7E1] cursor-pointer hover:scale-105 active:scale-95 transition-all" onclick="showToast('Copied: #4A6B5D')">
+              <div class="h-10 rounded-lg bg-[#4A6B5D] mb-2"></div>
+              <p class="text-xs font-medium">Sage Green</p><p class="text-[10px] text-[#787B80] font-mono">#4A6B5D</p>
+            </div>
+            <div class="p-3 rounded-xl bg-[#F4F4F0] border border-[#E8E7E1] cursor-pointer hover:scale-105 active:scale-95 transition-all" onclick="showToast('Copied: #5E81AC')">
+              <div class="h-10 rounded-lg bg-[#5E81AC] mb-2"></div>
+              <p class="text-xs font-medium">Glacier Blue</p><p class="text-[10px] text-[#787B80] font-mono">#5E81AC</p>
+            </div>
+            <div class="p-3 rounded-xl bg-[#F4F4F0] border border-[#E8E7E1] cursor-pointer hover:scale-105 active:scale-95 transition-all" onclick="showToast('Copied: #1E2022')">
+              <div class="h-10 rounded-lg bg-[#1E2022] mb-2"></div>
+              <p class="text-xs font-medium">Charcoal</p><p class="text-[10px] text-[#787B80] font-mono">#1E2022</p>
+            </div>
+          </div>
+          <div class="rounded-xl border border-[#E8E7E1] bg-[#F4F4F0] p-5 space-y-3 text-xs">
+            <p class="font-bold text-[#1E2022]">Interactive Spring Physics Button Preview</p>
+            <div class="flex gap-2">
+              <button onclick="showToast('Spring gesture active')" class="px-4 py-2 rounded-xl bg-[#4A6B5D] text-white font-medium hover:scale-105 active:scale-95 transition-all shadow-xs tactile-btn">Tactile Spring</button>
+              <button class="px-4 py-2 rounded-xl bg-white border border-[#E8E7E1] font-medium hover:border-[#4A6B5D] tactile-btn">Outlined Action</button>
+            </div>
+          </div>
+        </article>
+      `
+    },
+    'hackernews': {
+      id: 'hackernews',
+      title: 'Hacker News — Tech & Design Frontpage',
+      url: 'news.ycombinator.com',
+      icon: '<span class="font-bold text-xs text-[#ff6600]">Y</span>',
+      body: `
+        <article class="bg-[#f6f6ef] border border-[#d2d2c8] rounded-2xl overflow-hidden shadow-xs text-xs font-sans">
+          <div class="bg-[#ff6600] p-2 flex items-center justify-between text-black font-medium">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 bg-white text-[#ff6600] font-bold flex items-center justify-center text-xs">Y</span>
+              <span class="font-bold">Hacker News</span>
+              <span class="text-[11px]"><a href="#" class="hover:underline">new</a> | <a href="#" class="hover:underline">threads</a> | <a href="#" class="hover:underline">comments</a> | <a href="#" class="hover:underline">show</a> | <a href="#" class="hover:underline">ask</a> | <a href="#" class="hover:underline">jobs</a></span>
+            </div>
+            <span class="text-[11px]">alexander (420)</span>
+          </div>
+          <div class="p-4 space-y-3 text-[#222]">
+            <div class="space-y-0.5">
+              <div class="flex items-baseline gap-1.5">
+                <span class="text-zinc-500 font-mono">1.</span>
+                <button onclick="showToast('Upvoted story #1')" class="text-zinc-400 hover:text-black font-bold tactile-btn">▲</button>
+                <a href="#" class="text-black font-medium hover:underline text-sm">Zen Browser Architecture: Why Spatial Minimality Matters</a>
+                <span class="text-zinc-500 text-[10px]">(zen.workspace.dev)</span>
+              </div>
+              <p class="text-[10px] text-zinc-500 pl-6">512 points by tgul 2 hours ago | <a href="#" class="hover:underline">184 comments</a></p>
+            </div>
+            <div class="space-y-0.5">
+              <div class="flex items-baseline gap-1.5">
+                <span class="text-zinc-500 font-mono">2.</span>
+                <button onclick="showToast('Upvoted story #2')" class="text-zinc-400 hover:text-black font-bold tactile-btn">▲</button>
+                <a href="#" class="text-black font-medium hover:underline text-sm">Next.js 15.1 Released with Turbopack Stability & Speed Improvements</a>
+                <span class="text-zinc-500 text-[10px]">(nextjs.org)</span>
+              </div>
+              <p class="text-[10px] text-zinc-500 pl-6">894 points by rauchg 4 hours ago | <a href="#" class="hover:underline">342 comments</a></p>
+            </div>
+            <div class="space-y-0.5">
+              <div class="flex items-baseline gap-1.5">
+                <span class="text-zinc-500 font-mono">3.</span>
+                <button onclick="showToast('Upvoted story #3')" class="text-zinc-400 hover:text-black font-bold tactile-btn">▲</button>
+                <a href="#" class="text-black font-medium hover:underline text-sm">Show HN: Local offline-first SQLite in WASM with instant sync</a>
+                <span class="text-zinc-500 text-[10px]">(github.com)</span>
+              </div>
+              <p class="text-[10px] text-zinc-500 pl-6">310 points by sam_d 6 hours ago | <a href="#" class="hover:underline">79 comments</a></p>
+            </div>
+          </div>
+        </article>
+      `
+    },
+    'speeddial': {
+      id: 'speeddial',
+      title: 'New Tab — Speed Dial',
+      url: 'zen.workspace.dev/new',
+      icon: '<span class="material-symbols-outlined text-[15px] text-[#4A6B5D]">add</span>',
+      body: `
+        <div class="max-w-2xl mx-auto space-y-8 py-6">
+          <div class="text-center space-y-2">
+            <h1 class="font-serif text-3xl text-[#1E2022]">Zen Sanctuary</h1>
+            <p class="text-xs text-[#787B80]">Explore the quiet, distraction-free web.</p>
+          </div>
+          <div class="bg-white border border-[#E8E7E1] p-3 rounded-2xl shadow-xs flex items-center gap-3 transition-all focus-within:ring-2 focus-within:ring-[#4A6B5D]/20 focus-within:border-[#4A6B5D]">
+            <span class="material-symbols-outlined text-[#787B80] text-[20px]">search</span>
+            <input type="text" placeholder="Search Google or enter web address..." class="w-full bg-transparent border-0 text-xs focus:ring-0 p-0 text-[#1E2022]" onkeydown="if(event.key==='Enter')handleOmnibarSubmit(event, this.value)"/>
+          </div>
+          <div class="space-y-3">
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-[#787B80] px-1">Top Visited Sites</span>
+            <div class="grid grid-cols-4 gap-3 text-center">
+              <div onclick="loadSite('wikipedia')" class="p-4 rounded-2xl bg-white border border-[#E8E7E1] hover:border-[#4A6B5D] cursor-pointer transition-all flex flex-col items-center gap-2 group hover:scale-105 active:scale-95 shadow-xs">
+                <span class="w-10 h-10 rounded-xl bg-[#F4F4F0] flex items-center justify-center font-serif font-bold text-lg group-hover:scale-110 transition-transform">W</span>
+                <span class="text-xs font-medium">Wikipedia</span>
+              </div>
+              <div onclick="loadSite('github')" class="p-4 rounded-2xl bg-white border border-[#E8E7E1] hover:border-[#4A6B5D] cursor-pointer transition-all flex flex-col items-center gap-2 group hover:scale-105 active:scale-95 shadow-xs">
+                <span class="w-10 h-10 rounded-xl bg-black text-white flex items-center justify-center text-lg group-hover:scale-110 transition-transform">🐙</span>
+                <span class="text-xs font-medium">GitHub</span>
+              </div>
+              <div onclick="loadSite('substack')" class="p-4 rounded-2xl bg-white border border-[#E8E7E1] hover:border-[#4A6B5D] cursor-pointer transition-all flex flex-col items-center gap-2 group hover:scale-105 active:scale-95 shadow-xs">
+                <span class="w-10 h-10 rounded-xl bg-[#ff6719] text-white flex items-center justify-center font-bold text-base group-hover:scale-110 transition-transform">S</span>
+                <span class="text-xs font-medium">Substack</span>
+              </div>
+              <div onclick="loadSite('hackernews')" class="p-4 rounded-2xl bg-white border border-[#E8E7E1] hover:border-[#4A6B5D] cursor-pointer transition-all flex flex-col items-center gap-2 group hover:scale-105 active:scale-95 shadow-xs">
+                <span class="w-10 h-10 rounded-xl bg-[#ff6600] text-white flex items-center justify-center font-bold text-base group-hover:scale-110 transition-transform">Y</span>
+                <span class="text-xs font-medium">Hacker News</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `
+    }
+  };
+
+  // State Management
+  const state = {
+    activeSiteId: 'wikipedia',
+    openTabs: ['wikipedia', 'github', 'substack', 'framer', 'hackernews'],
+    history: ['wikipedia'],
+    historyIndex: 0,
+    favorites: ['wikipedia', 'github', 'substack', 'framer', 'hackernews'],
+    isReader: false,
+    isZen: false,
+    currentSpace: 'research',
+    zoom: 100,
+    notes: [
+      { id: 1, text: 'Form follows function — Bauhaus core design doctrine.' }
+    ]
+  };
+
+  // Spring Toast Notification
+  function showToast(msg, type = 'info') {
+    const c = document.getElementById('toast-container');
+    const t = document.createElement('div');
+    t.className = 'px-4 py-2 rounded-full bg-white/95 backdrop-blur-md border border-[#E8E7E1] shadow-2xl text-xs font-medium text-[#1E2022] flex items-center gap-2 pointer-events-auto slide-up-modal';
+    const icon = type === 'success' ? 'check_circle' : (type === 'amber' ? 'star' : 'info');
+    const color = type === 'success' ? 'text-[#4A6B5D]' : (type === 'amber' ? 'text-amber-500' : 'text-[#787B80]');
+    t.innerHTML = `<span class="material-symbols-outlined text-[16px] ${color}">${icon}</span><span>${msg}</span>`;
+    c.appendChild(t);
+    setTimeout(() => {
+      t.style.opacity = '0';
+      t.style.transform = 'translateY(10px) scale(0.95)';
+      t.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+      setTimeout(() => t.remove(), 320);
+    }, 2200);
+  }
+
+  // Fluid Top Loading Progress Bar Sweep
+  function triggerLoader(cb) {
+    const bar = document.getElementById('loader-bar');
+    bar.style.opacity = '1';
+    bar.style.width = '25%';
+    
+    setTimeout(() => {
+      bar.style.width = '72%';
+    }, 70);
+
+    setTimeout(() => {
+      bar.style.width = '100%';
+      if (cb) cb();
+      setTimeout(() => {
+        bar.style.opacity = '0';
+        setTimeout(() => {
+          bar.style.width = '0%';
+        }, 250);
+      }, 160);
+    }, 220);
+  }
+
+  // Live Tab and Viewport Switching with Crossfade
+  function loadSite(siteId, pushHist = true) {
+    const site = SITES[siteId] || SITES['speeddial'];
+    state.activeSiteId = siteId;
+
+    if (!state.openTabs.includes(siteId)) {
+      state.openTabs.push(siteId);
+    }
+
+    if (pushHist) {
+      state.history = state.history.slice(0, state.historyIndex + 1);
+      state.history.push(siteId);
+      state.historyIndex = state.history.length - 1;
+    }
+
+    triggerLoader(() => {
+      // Dynamic Omnibox URL & Favicon
+      const input = document.getElementById('omnibar-input');
+      input.value = site.url;
+      document.getElementById('omnibar-favicon').innerHTML = site.icon;
+      document.getElementById('dev-title').textContent = site.title;
+      
+      // Inject Content with Crossfade & Slide-up animation
+      const card = document.getElementById('content-card');
+      card.classList.remove('page-enter-active');
+      void card.offsetWidth; // trigger reflow
+      card.innerHTML = site.body;
+      card.classList.add('page-enter-active');
+
+      document.getElementById('web-viewport').scrollTop = 0;
+      handleScroll();
+
+      // Update Star Icon
+      const isFav = state.favorites.includes(siteId);
+      const star = document.getElementById('star-icon');
+      star.classList.toggle('text-amber-500', isFav);
+      star.style.fontVariationSettings = isFav ? "'FILL' 1" : "'FILL' 0";
+
+      updateNavButtons();
+      renderTabs();
+      renderFavorites();
+    });
+  }
+
+  // Render Open Tabs with Equalizer on Audio Tab
+  function renderTabs() {
+    const list = document.getElementById('tabs-list');
+    document.getElementById('tab-count').textContent = `${state.openTabs.length} tabs`;
+    list.innerHTML = '';
+
+    state.openTabs.forEach(id => {
+      const s = SITES[id];
+      if (!s) return;
+      const isActive = id === state.activeSiteId;
+      const hasAudio = s.hasAudio;
+      const el = document.createElement('div');
+      el.className = `flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer group transition-all duration-200 text-xs tactile-btn ${
+        isActive
+          ? 'bg-white border border-[#E8E7E1] font-medium shadow-xs text-[#1E2022]'
+          : 'text-[#787B80] hover:text-[#1E2022] hover:bg-white/60'
+      }`;
+      el.onclick = (e) => {
+        if (!e.target.closest('button')) loadSite(id);
+      };
+
+      // Sound Equalizer Mini Indicator
+      const audioIndicator = hasAudio ? `
+        <div class="flex items-end gap-0.5 h-3 ml-auto mr-1" title="Tab playing audio">
+          <span class="w-0.5 bg-[#4A6B5D] rounded-full equalizer-bar-1"></span>
+          <span class="w-0.5 bg-[#4A6B5D] rounded-full equalizer-bar-2"></span>
+          <span class="w-0.5 bg-[#4A6B5D] rounded-full equalizer-bar-3"></span>
+        </div>
+      ` : '';
+
+      el.innerHTML = `
+        <span class="w-4 h-4 flex items-center justify-center shrink-0 transition-transform group-hover:scale-110">${s.icon}</span>
+        <span class="truncate flex-1">${s.title.split('—')[0].trim()}</span>
+        ${audioIndicator}
+        <button onclick="closeTab('${id}', event)" class="opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity p-0.5 tactile-btn ml-auto" title="Close Tab">
+          <span class="material-symbols-outlined text-[13px]">close</span>
+        </button>
+      `;
+      list.appendChild(el);
+    });
+  }
+
+  function closeTab(id, e) {
+    if (e) e.stopPropagation();
+    const idx = state.openTabs.indexOf(id);
+    if (idx !== -1) {
+      state.openTabs.splice(idx, 1);
+      if (state.openTabs.length === 0) state.openTabs.push('speeddial');
+      if (state.activeSiteId === id) {
+        loadSite(state.openTabs[Math.max(0, idx - 1)] || state.openTabs[0]);
+      } else {
+        renderTabs();
+      }
+      showToast('Tab closed');
+    }
+  }
+
+  function openSpeedDial() {
+    loadSite('speeddial');
+    showToast('Opened Speed Dial');
+  }
+
+  // Render Favorites Dock
+  function renderFavorites() {
+    const grid = document.getElementById('favorites-grid');
+    document.getElementById('fav-count').textContent = `${state.favorites.length} pinned`;
+    grid.innerHTML = '';
+
+    state.favorites.forEach(id => {
+      const s = SITES[id];
+      if (!s) return;
+      const b = document.createElement('button');
+      b.className = `aspect-square rounded-xl bg-white border border-[#E8E7E1] hover:border-[#787B80] flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-xs tactile-btn ${
+        state.activeSiteId === id ? 'ring-2 ring-[#4A6B5D]/40 border-[#4A6B5D]' : ''
+      }`;
+      b.title = s.title;
+      b.onclick = () => loadSite(id);
+      b.innerHTML = s.icon;
+      grid.appendChild(b);
+    });
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'aspect-square rounded-xl bg-white border border-[#E8E7E1] hover:border-[#787B80] flex items-center justify-center text-[#787B80] hover:text-[#1E2022] hover:scale-105 active:scale-95 transition-all tactile-btn';
+    addBtn.title = 'Add Favorite';
+    addBtn.onclick = () => {
+      const current = state.activeSiteId;
+      if (!state.favorites.includes(current)) {
+        state.favorites.push(current);
+        renderFavorites();
+        showToast('Favorite added', 'success');
+      } else {
+        showToast('Page already pinned');
+      }
+    };
+    addBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">add</span>';
+    grid.appendChild(addBtn);
+  }
+
+  // Tactile Bookmark Toggle with Sparkle Bounce
+  function toggleBookmarkCurrent(e) {
+    if (e) e.stopPropagation();
+    const current = state.activeSiteId;
+    const idx = state.favorites.indexOf(current);
+    const star = document.getElementById('star-icon');
+
+    star.classList.remove('star-bounce');
+    void star.offsetWidth;
+    star.classList.add('star-bounce');
+
+    if (idx !== -1) {
+      state.favorites.splice(idx, 1);
+      star.classList.remove('text-amber-500');
+      star.style.fontVariationSettings = "'FILL' 0";
+      showToast('Removed from Favorites');
+    } else {
+      state.favorites.push(current);
+      star.classList.add('text-amber-500');
+      star.style.fontVariationSettings = "'FILL' 1";
+      showToast('Saved to Favorites ✨', 'amber');
+    }
+    renderFavorites();
+  }
+
+  // Copy Link with Icon Morphing
+  function copyCurrentUrl() {
+    const site = SITES[state.activeSiteId] || { url: 'https://zen.workspace.dev' };
+    navigator.clipboard.writeText('https://' + site.url);
+    
+    const icon = document.getElementById('copy-icon');
+    icon.textContent = 'check';
+    icon.classList.add('text-[#4A6B5D]', 'scale-110');
+
+    showToast('Link copied to clipboard', 'success');
+
+    setTimeout(() => {
+      icon.textContent = 'link';
+      icon.classList.remove('text-[#4A6B5D]', 'scale-110');
+    }, 1800);
+  }
+
+  // Reload with 360-degree rotation animation
+  function navReload() {
+    const ic = document.getElementById('reload-icon');
+    ic.style.transform = 'rotate(360deg)';
+    setTimeout(() => {
+      ic.style.transition = 'none';
+      ic.style.transform = 'rotate(0deg)';
+      setTimeout(() => {
+        ic.style.transition = 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)';
+      }, 50);
+    }, 500);
+
+    triggerLoader(() => showToast('Page refreshed'));
+  }
+
+  // Spaces Switcher with Sliding Background Pill
+  function switchSpace(space) {
+    state.currentSpace = space;
+    const pill = document.getElementById('space-pill');
+    const resBtn = document.getElementById('space-res-btn');
+    const stuBtn = document.getElementById('space-stu-btn');
+
+    if (space === 'research') {
+      pill.style.transform = 'translateX(0%)';
+      resBtn.classList.replace('text-[#787B80]', 'text-[#1E2022]');
+      stuBtn.classList.replace('text-[#1E2022]', 'text-[#787B80]');
+      loadSite('wikipedia');
+      showToast('Switched to Research Space');
+    } else {
+      pill.style.transform = 'translateX(100%)';
+      stuBtn.classList.replace('text-[#787B80]', 'text-[#1E2022]');
+      resBtn.classList.replace('text-[#1E2022]', 'text-[#787B80]');
+      loadSite('framer');
+      showToast('Switched to Studio Space');
+    }
+  }
+
+  // Navigation History
+  function navBack() {
+    if (state.historyIndex > 0) {
+      state.historyIndex--;
+      loadSite(state.history[state.historyIndex], false);
+    }
+  }
+
+  function navForward() {
+    if (state.historyIndex < state.history.length - 1) {
+      state.historyIndex++;
+      loadSite(state.history[state.historyIndex], false);
+    }
+  }
+
+  function updateNavButtons() {
+    document.getElementById('nav-back-btn').disabled = state.historyIndex <= 0;
+    document.getElementById('nav-fwd-btn').disabled = state.historyIndex >= state.history.length - 1;
+  }
+
+  // Omnibar Suggestions Controls
+  function showSuggestions(show) {
+    const el = document.getElementById('omnibar-suggestions');
+    if (show) {
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  }
+
+  function handleOmnibarBlur() {
+    setTimeout(() => {
+      showSuggestions(false);
+    }, 200);
+  }
+
+  function handleOmnibarSubmit(e, customVal) {
+    if (e) e.preventDefault();
+    showSuggestions(false);
+    const q = (customVal || document.getElementById('omnibar-input').value).toLowerCase().trim();
+    if (!q) return;
+
+    if (q.includes('wiki') || q.includes('bauhaus')) loadSite('wikipedia');
+    else if (q.includes('git') || q.includes('next')) loadSite('github');
+    else if (q.includes('sub') || q.includes('diff')) loadSite('substack');
+    else if (q.includes('frame')) loadSite('framer');
+    else if (q.includes('hacker') || q.includes('yc') || q.includes('news')) loadSite('hackernews');
+    else {
+      SITES['search'] = {
+        id: 'search',
+        title: `Search: ${q}`,
+        url: `google.com/search?q=${encodeURIComponent(q)}`,
+        icon: '<span class="material-symbols-outlined text-[15px] text-[#4A6B5D]">search</span>',
+        body: `
+          <div class="bg-white border border-[#E8E7E1] rounded-2xl p-8 space-y-4">
+            <span class="text-xs text-[#4A6B5D] uppercase font-semibold">Web Search Results</span>
+            <h1 class="text-2xl font-serif">Results for "${q}"</h1>
+            <p class="text-xs text-[#787B80]">Safe sandbox browsing active.</p>
+            <div class="p-4 rounded-xl bg-[#F4F4F0] border border-[#E8E7E1] text-xs">
+              <a href="#" class="font-bold text-[#5E81AC] hover:underline text-sm">${q} — Official Reference</a>
+              <p class="text-[#4A4D52] mt-1">Explore verified publications and web portals regarding ${q}.</p>
+            </div>
+          </div>
+        `
+      };
+      loadSite('search');
+    }
+  }
+
+  // Reading Mode
+  function toggleReaderMode() {
+    state.isReader = !state.isReader;
+    document.getElementById('content-card').classList.toggle('reader-mode-on', state.isReader);
+    document.getElementById('reader-btn').classList.toggle('text-[#4A6B5D]', state.isReader);
+    showToast(state.isReader ? 'Serene Reader Mode Active' : 'Standard Web View');
+  }
+
+  // Zen Fullscreen Focus
+  function toggleZenFocus() {
+    state.isZen = !state.isZen;
+    document.getElementById('sidebar').classList.toggle('hidden', state.isZen);
+    document.getElementById('main-header').classList.toggle('hidden', state.isZen);
+    document.getElementById('zen-restore-btn').classList.toggle('hidden', !state.isZen);
+    showToast(state.isZen ? 'Zen Sanctuary Focus (Press Esc to exit)' : 'Normal Canvas Restored');
+  }
+
+  // Collapsible Sidebar
+  function toggleSidebar() {
+    const sb = document.getElementById('sidebar');
+    sb.classList.toggle('w-64');
+    sb.classList.toggle('w-16');
+    showToast('Sidebar toggled');
+  }
+
+  // Zoom Controls
+  function adjustZoom(delta) {
+    state.zoom = Math.max(70, Math.min(150, state.zoom + delta));
+    document.getElementById('zoom-val').textContent = `${state.zoom}%`;
+    document.getElementById('content-card').style.zoom = state.zoom / 100;
+  }
+
+  function toggleDevTools() {
+    document.getElementById('devtools-panel').classList.toggle('hidden');
+  }
+
+  function toggleDarkReader(chk) {
+    document.documentElement.classList.toggle('dark', chk.checked);
+    showToast(`Dark Reader ${chk.checked ? 'Enabled' : 'Disabled'}`);
+  }
+
+  // Reading Progress on Scroll
+  function handleScroll() {
+    const el = document.getElementById('web-viewport');
+    const max = el.scrollHeight - el.clientHeight;
+    const pct = max > 0 ? (el.scrollTop / max) * 100 : 0;
+    document.getElementById('read-progress').style.width = `${pct}%`;
+  }
+
+  // Scratchpad Note Adding with Animation
+  function toggleScratchpad() {
+    const box = document.getElementById('scratchpad-box');
+    box.classList.toggle('hidden');
+  }
+
+  function saveNote() {
+    const inp = document.getElementById('note-input');
+    const txt = inp.value.trim();
+    if (!txt) return;
+
+    const newNote = { id: Date.now(), text: txt };
+    state.notes.unshift(newNote);
+    inp.value = '';
+
+    renderNotes(newNote.id);
+    showToast('Note added to workspace', 'success');
+  }
+
+  function renderNotes(highlightId = null) {
+    const list = document.getElementById('notes-list-box');
+    document.getElementById('notes-badge').textContent = `${state.notes.length} saved`;
+
+    list.innerHTML = state.notes.map(n => `
+      <div class="p-2 rounded-xl bg-[#F4F4F0] text-[#1E2022] flex justify-between gap-1 items-center border border-[#E8E7E1]/50 ${n.id === highlightId ? 'note-insert ring-1 ring-[#4A6B5D]' : ''}">
+        <span class="truncate text-[11px]">${n.text}</span>
+        <button onclick="deleteNote(${n.id})" class="text-[#787B80] hover:text-red-600 transition-colors tactile-btn p-0.5">
+          <span class="material-symbols-outlined text-[13px]">delete</span>
+        </button>
+      </div>
+    `).join('');
+  }
+
+  function deleteNote(id) {
+    state.notes = state.notes.filter(n => n.id !== id);
+    renderNotes();
+    showToast('Note deleted');
+  }
+
+  // Dropdowns Management
+  function closeDropdowns() {
+    ['dropdown-downloads', 'dropdown-extensions', 'dropdown-history', 'dropdown-more', 'omnibar-suggestions'].forEach(id => {
+      document.getElementById(id)?.classList.add('hidden');
+    });
+  }
+
+  function toggleDownloads(e) { e.stopPropagation(); const el = document.getElementById('dropdown-downloads'); const h = el.classList.contains('hidden'); closeDropdowns(); if (h) el.classList.remove('hidden'); }
+  function toggleExtensions(e) { e.stopPropagation(); const el = document.getElementById('dropdown-extensions'); const h = el.classList.contains('hidden'); closeDropdowns(); if (h) el.classList.remove('hidden'); }
+  function toggleHistory(e) { e.stopPropagation(); const el = document.getElementById('dropdown-history'); const h = el.classList.contains('hidden'); closeDropdowns(); if (h) el.classList.remove('hidden'); }
+  function toggleMoreMenu(e) { e.stopPropagation(); const el = document.getElementById('dropdown-more'); const h = el.classList.contains('hidden'); closeDropdowns(); if (h) el.classList.remove('hidden'); }
+
+  function clearDownloads() {
+    showToast('Downloads cleared');
+    document.getElementById('downloads-badge').classList.add('hidden');
+  }
+
+  function clearHistory() {
+    showToast('History cleared');
+    document.getElementById('dropdown-history').classList.add('hidden');
+  }
+
+  // Command Palette
+  function openCmdPalette() {
+    document.getElementById('cmd-modal').classList.remove('hidden');
+    document.getElementById('cmd-query').focus();
+  }
+
+  function closeCmdPalette() {
+    document.getElementById('cmd-modal').classList.add('hidden');
+  }
+
+  function handleCmdBackdrop(e) {
+    if (e.target.id === 'cmd-modal') closeCmdPalette();
+  }
+
+  function filterCmdList(query) {
+    const q = query.toLowerCase().trim();
+    const items = document.querySelectorAll('#cmd-list-items > div');
+    items.forEach(item => {
+      const txt = item.textContent.toLowerCase();
+      item.style.display = txt.includes(q) ? 'flex' : 'none';
+    });
+  }
+
+  // Settings Modal
+  function openSettingsModal() {
+    document.getElementById('settings-modal').classList.remove('hidden');
+  }
+
+  function closeSettingsModal() {
+    document.getElementById('settings-modal').classList.add('hidden');
+  }
+
+  function handleSettingsBackdrop(e) {
+    if (e.target.id === 'settings-modal') closeSettingsModal();
+  }
+
+  function openShareModal() {
+    copyCurrentUrl();
+  }
+
+  // Initialization
+  document.addEventListener('DOMContentLoaded', () => {
+    loadSite('wikipedia', false);
+    renderNotes();
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#main-header') && !e.target.closest('#omnibar-wrap')) {
+        closeDropdowns();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openCmdPalette();
+      }
+      if (e.key === 'Escape') {
+        if (state.isZen) toggleZenFocus();
+        closeCmdPalette();
+        closeSettingsModal();
+        closeDropdowns();
+      }
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleZenFocus();
+      }
+    });
+  });
+</script>
+</body></html>

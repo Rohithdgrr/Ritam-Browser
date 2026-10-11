@@ -1,0 +1,17 @@
+[package]
+name = "ritam-browser-core"
+version = "0.1.0"
+description = "Ritam Browser core runtime library: navigation policy and the Obscura engine adapter (Rohan)"
+edition = "2021"
+rust-version = "1.77.2"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+tungstenite = "0.26"
+
+[dev-dependencies]
+# none: live engine tests are gated on OBSCURA_LIVE=1 and use only std + the
+# already-present obscura binary

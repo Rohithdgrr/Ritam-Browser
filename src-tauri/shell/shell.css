@@ -1,0 +1,399 @@
+/* Ritam Browser runtime shell (Rohan).
+ *
+ * TEMPORARY: this is not the product chrome. Govinda owns browser/ui/**
+ * (Phase 1) and this shell is replaced by it — see PLAN.md Request 2.
+ * It exists so Phase 2 runtime behavior is demonstrable before Phase 1.
+ *
+ * Values follow DESIGN.md's Serene Canvas tokens: warm canvas, sage
+ * primary, hairline borders, soft ambient shadows, 8/16 radii. No ad-hoc
+ * colors. Every control has hover/pressed/focus-visible/disabled states and
+ * honors prefers-reduced-motion.
+ */
+
+:root {
+  --canvas: #faf9f5;
+  --surface-1: #f4f2ec;
+  --surface-2: #edeae1;
+  --border: #e2ddd3;
+  --ink: #1e2321;
+  --ink-muted: #68706b;
+  --primary: #4a6b5d;
+  --primary-hover: #557a6a;
+  --secondary: #5e6c75;
+  --tertiary: #8c9e94;
+  --danger: #8a4b3f;
+  --radius: 8px;
+  --radius-lg: 16px;
+  --shadow-ambient: 0 4px 20px -2px rgba(60, 68, 64, 0.05),
+    0 12px 32px -4px rgba(60, 68, 64, 0.08);
+  --font-ui: "Segoe UI", "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--surface-1);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+}
+
+.skip-link {
+  position: absolute;
+  left: -999px;
+  top: 0;
+  background: var(--primary);
+  color: var(--canvas);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  z-index: 10;
+}
+.skip-link:focus {
+  left: 8px;
+  top: 8px;
+}
+
+/* --- tab strip ---------------------------------------------------------- */
+
+.tabstrip {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 8px 0;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  min-height: 40px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  flex: 1;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  min-width: 120px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--secondary);
+  font: inherit;
+  cursor: default;
+  white-space: nowrap;
+}
+.tab:hover {
+  background: var(--surface-2);
+}
+.tab[aria-selected="true"] {
+  background: var(--canvas);
+  border-color: var(--border);
+  color: var(--ink);
+  box-shadow: inset 0 2px 0 0 var(--primary);
+}
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  text-align: left;
+}
+.tab-close {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  border-radius: var(--radius);
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  cursor: pointer;
+  font-size: 14px;
+}
+.tab-close:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* --- toolbar ------------------------------------------------------------ */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+}
+
+.icon-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--secondary);
+  border-radius: var(--radius);
+  width: 30px;
+  height: 30px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.icon-button:active:not(:disabled) {
+  background: var(--border);
+}
+.icon-button:disabled {
+  color: var(--border);
+  cursor: default;
+}
+
+.omnibox-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.omnibox {
+  width: 100%;
+  height: 30px;
+  padding: 0 78px 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--ink);
+  font: inherit;
+}
+.omnibox::placeholder {
+  color: var(--ink-muted);
+}
+.omnibox:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(140, 158, 148, 0.25);
+}
+
+.origin-chip {
+  position: absolute;
+  right: 10px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 2px 8px;
+  pointer-events: none;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ghost-button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+  flex: none;
+  white-space: nowrap;
+}
+.ghost-button:hover:not(:disabled) {
+  background: var(--surface-1);
+}
+.ghost-button:disabled {
+  color: var(--ink-muted);
+  cursor: default;
+}
+
+.primary-button {
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--canvas);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+.primary-button:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+/* --- status bar --------------------------------------------------------- */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  min-height: 24px;
+  background: var(--surface-1);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.engine-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  padding: 2px 10px;
+  flex: none;
+}
+.engine-pill[data-state="ready"]::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+.engine-pill[data-state="unavailable"]::before,
+.engine-pill[data-state="error"]::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--danger);
+}
+
+.status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status[data-tone="error"] {
+  color: var(--danger);
+}
+
+/* --- verify panel ------------------------------------------------------- */
+
+.verify-panel {
+  position: fixed;
+  right: 10px;
+  bottom: 34px;
+  width: min(560px, calc(100vw - 20px));
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-ambient);
+  padding: 14px 16px;
+  z-index: 5;
+}
+.verify-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.verify-head h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.verify-summary {
+  margin: 10px 0;
+  font-size: 12px;
+}
+.verify-body {
+  margin: 0;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  background: var(--surface-1);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+.match {
+  color: var(--primary);
+  font-weight: 600;
+}
+.mismatch {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* --- external protocol dialog ------------------------------------------- */
+
+.external-dialog {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  color: var(--ink);
+  padding: 20px 22px;
+  max-width: 440px;
+  box-shadow: var(--shadow-ambient);
+}
+.external-dialog::backdrop {
+  background: rgba(30, 35, 33, 0.28);
+}
+.external-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+.external-dialog p {
+  margin: 0 0 12px;
+  color: var(--ink-muted);
+}
+.external-details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0 0 16px;
+  font-size: 12px;
+}
+.external-details dt {
+  color: var(--ink-muted);
+}
+.external-details dd {
+  margin: 0;
+  word-break: break-all;
+  user-select: text;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* --- focus visibility (release requirement) ----------------------------- */
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

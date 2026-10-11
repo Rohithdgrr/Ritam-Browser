@@ -1,0 +1,49 @@
+# Ritam Browser — local-only artifacts (Rohan, owner-ordered push 2026-10-10)
+
+# --- Rust build output (every crate) ---
+target/
+
+# --- machine-local cargo config: relocates target-dir out of the tree on
+#     this workstation; a fresh clone must use the default target/ ---
+.cargo/config.toml
+
+# --- owner's local, non-project documents (not ours to publish) ---
+Fresher Hiring JD 2026.pdf
+KPIT_Digital_Electronics_Microprocessors_Cheatsheet.docx
+
+# --- pinned Obscura engine: fetched per docs/DEPENDENCIES.md and
+#     SHA-256-verified; CI re-fetches it before tests and bundles ---
+tools/obscura-bin/
+tools/obscura-x86_64-windows.zip
+src-tauri/resources/engine/*
+!src-tauri/resources/engine/README.txt
+
+# --- local tool binaries (fetched, checksums in docs/DEPENDENCIES.md) ---
+tools/nextest/
+
+# --- upstream read-only mirrors (pinned commits recorded in
+#     docs/DEPENDENCIES.md; never modified, never published from this repo) ---
+/obscura/
+/obscura-benchmark/
+
+# --- node ---
+node_modules/
+
+# --- run artifacts, profiles, logs ---
+*.log
+*.tmp
+tmp/
+.playwright-mcp/
+
+# --- secrets (AGENTS.md §6: no credentials anywhere) ---
+.env
+.env.*
+*.pem
+*.key
+
+# --- editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

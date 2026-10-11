@@ -1,0 +1,93 @@
+/* Ritam Browser — Serene Canvas tokens.
+   Law: DESIGN.md at the repo root; mapping: docs/DESIGN_SYSTEM.md §1.
+   No component may declare a raw color, size, radius, or font — tokens only. */
+
+/* ---------------------------------------------------------------- fonts ---
+   Byte-identical copies of the pinned downloads in assets/fonts/ (rule 4,
+   hashes in docs/DEPENDENCIES.md). Variable fonts: one file serves the
+   whole weight axis; we register the weights we actually use. */
+@font-face {
+  font-family: "Newsreader";
+  src: url("fonts/newsreader-400.woff2") format("woff2");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("fonts/plus-jakarta-sans-400.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* ------------------------------------------------------------ color --- */
+  --canvas: #faf9f5;
+  --surface-1: #f4f2ec;
+  --surface-2: #e8e5dc;
+  --border: #e2ddd3;
+  --ink: #1e2321;
+  --ink-muted: #68706b;
+  --primary: #4a6b5d;
+  --primary-strong: #3d5a4e;
+  --primary-soft: #e3ece7;
+  --danger: #a4322b;
+  --danger-soft: #f7e7e5;
+  --focus: #4a6b5d;
+
+  /* ------------------------------------------------------------- type --- */
+  --font-ui: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+  --font-editorial: "Newsreader", Georgia, "Times New Roman", serif;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --leading-control: 1.2;
+  --leading-body: 1.5;
+  --leading-heading: 1.15;
+
+  /* ------------------------------------------------------------ space --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* ------------------------------------------------------------ radius --- */
+  --radius: 8px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  /* ---------------------------------------------------------- elevation --- */
+  --shadow: 0 8px 24px rgba(30, 35, 33, 0.1);
+  --shadow-lg: 0 16px 48px rgba(30, 35, 33, 0.16);
+
+  /* ------------------------------------------------------- layout law ---- */
+  /* docs/DESIGN_SYSTEM.md §2 — shell.rs pins the strip at these heights. */
+  --strip-tabstrip: 40px;
+  --strip-toolbar: 44px;
+  --strip-status: 24px;
+  --strip-total: 108px;
+
+  /* ------------------------------------------------------------ motion --- */
+  --motion-fast: 120ms;
+  --motion-med: 180ms;
+}
+
+/* Motion exists only when the user has not asked for less of it. */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    --motion: var(--motion-fast) ease;
+    --motion-panel: var(--motion-med) ease;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms;
+    --motion-panel: 0ms;
+  }
+}

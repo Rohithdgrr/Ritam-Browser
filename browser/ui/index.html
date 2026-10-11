@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ritam Browser</title>
+    <link rel="icon" type="image/png" href="ritam-logo-32.png" />
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="chrome.css" />
+  </head>
+  <body>
+    <!-- Icon sprite: lucide-static@0.545.0 glyphs, inlined from assets/icons
+         (provenance: docs/DESIGN_SYSTEM.md §6). No icon font, no remote set. -->
+    <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7" /><path d="M19 12H5" /></symbol>
+      <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></symbol>
+      <symbol id="i-rotate-cw" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /></symbol>
+      <symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /></symbol>
+      <symbol id="i-house" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14" /><path d="M12 5v14" /></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 5h16" /><path d="M4 12h16" /><path d="M4 19h16" /></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></symbol>
+      <symbol id="i-loader-circle" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></symbol>
+      <symbol id="i-circle-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34" /><circle cx="11" cy="11" r="8" /></symbol>
+      <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" /></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /></symbol>
+      <symbol id="i-notebook-pen" viewBox="0 0 24 24"><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4" /><path d="M2 6h4" /><path d="M2 10h4" /><path d="M2 14h4" /><path d="M2 18h4" /><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z" /></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /><circle cx="12" cy="12" r="3" /></symbol>
+      <symbol id="i-trash-2" viewBox="0 0 24 24"><path d="M10 11v6" /><path d="M14 11v6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></symbol>
+      <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" /></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></symbol>
+    </svg>
+
+    <a class="skip-link" href="#omnibox">Skip to the address bar</a>
+
+    <!-- Row 1: tab strip (40px — docs/DESIGN_SYSTEM.md §2) -->
+    <div class="tabstrip">
+      <div id="tabs" class="tabs" role="tablist" aria-label="Open tabs"></div>
+      <button id="new-tab" class="icon-btn" type="button" aria-label="New tab (Ctrl+T)" title="New tab — Ctrl+T">
+        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+      </button>
+    </div>
+
+    <!-- Row 2: toolbar (44px) -->
+    <div class="toolbar" role="toolbar" aria-label="Navigation controls">
+      <button id="back" class="icon-btn" type="button" aria-label="Back (Alt+Left)" title="Back — Alt+Left" disabled>
+        <svg class="icon" aria-hidden="true"><use href="#i-arrow-left" /></svg>
+      </button>
+      <button id="forward" class="icon-btn" type="button" aria-label="Forward (Alt+Right)" title="Forward — Alt+Right" disabled>
+        <svg class="icon" aria-hidden="true"><use href="#i-arrow-right" /></svg>
+      </button>
+      <button id="reload" class="icon-btn" type="button" aria-label="Reload (Ctrl+R)" title="Reload — Ctrl+R">
+        <svg class="icon" aria-hidden="true"><use href="#i-rotate-cw" /></svg>
+      </button>
+      <button id="home" class="icon-btn" type="button" aria-label="Home" title="Home">
+        <svg class="icon" aria-hidden="true"><use href="#i-house" /></svg>
+      </button>
+
+      <form id="omnibox-form" class="omnibox" role="search" autocomplete="off" aria-label="Address and search">
+        <span id="origin-chip" class="chip" hidden></span>
+        <input
+          id="omnibox"
+          type="text"
+          spellcheck="false"
+          aria-label="Address and search bar"
+          placeholder="Search or type a URL"
+        />
+        <button id="star" class="icon-btn" type="button" aria-label="Bookmark this page" title="Bookmark this page — Ctrl+D" disabled>
+          <svg class="icon" aria-hidden="true"><use href="#i-star" /></svg>
+        </button>
+      </form>
+
+      <button id="menu-btn" class="icon-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="Main menu" title="Main menu">
+        <svg class="icon" aria-hidden="true"><use href="#i-menu" /></svg>
+      </button>
+    </div>
+
+    <!-- Row 3: status bar (24px) -->
+    <footer class="statusbar">
+      <span id="status" class="status-text" role="status" aria-live="polite"></span>
+      <button id="mode-chip" class="mode-chip" type="button" hidden></button>
+      <button id="engine-pill" class="engine-pill" type="button" aria-label="Engine status — open details">
+        <svg class="icon icon-sm" aria-hidden="true"><use href="#i-loader-circle" /></svg>
+        <span id="engine-pill-text">engine: starting…</span>
+      </button>
+    </footer>
+
+    <!-- App menu (overlay — needs chrome_resize, PLAN.md G-1) -->
+    <nav id="menu" class="menu" role="menu" aria-label="Main menu" hidden>
+      <button class="menu-item" type="button" role="menuitem" data-panel="bookmarks">
+        <svg class="icon" aria-hidden="true"><use href="#i-bookmark" /></svg>
+        <span>Bookmarks</span><kbd>Ctrl+Shift+O</kbd>
+      </button>
+      <button class="menu-item" type="button" role="menuitem" data-panel="history">
+        <svg class="icon" aria-hidden="true"><use href="#i-history" /></svg>
+        <span>History</span><kbd>Ctrl+H</kbd>
+      </button>
+      <button class="menu-item" type="button" role="menuitem" data-panel="downloads">
+        <svg class="icon" aria-hidden="true"><use href="#i-download" /></svg>
+        <span>Downloads</span><kbd>Ctrl+J</kbd>
+      </button>
+      <button class="menu-item" type="button" role="menuitem" data-panel="scratchpad">
+        <svg class="icon" aria-hidden="true"><use href="#i-notebook-pen" /></svg>
+        <span>Scratchpad</span><kbd>Ctrl+Shift+P</kbd>
+      </button>
+      <button class="menu-item" type="button" role="menuitem" data-panel="settings">
+        <svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg>
+        <span>Settings</span><kbd>Ctrl+,</kbd>
+      </button>
+      <hr class="menu-sep" />
+      <button class="menu-item" type="button" role="menuitem" data-action="verify">
+        <svg class="icon" aria-hidden="true"><use href="#i-circle-alert" /></svg>
+        <span>Engine verification</span>
+      </button>
+    </nav>
+
+    <!-- Side panel host (overlay — needs chrome_resize, PLAN.md G-1) -->
+    <section id="panel" class="panel" aria-label="Side panel" hidden>
+      <header class="panel-head">
+        <div class="panel-tabs" role="tablist" aria-label="Panel views">
+          <button class="panel-tab" id="tab-bookmarks" type="button" role="tab" data-view="bookmarks" aria-controls="view-bookmarks" aria-selected="false" tabindex="-1">Bookmarks</button>
+          <button class="panel-tab" id="tab-history" type="button" role="tab" data-view="history" aria-controls="view-history" aria-selected="false" tabindex="-1">History</button>
+          <button class="panel-tab" id="tab-downloads" type="button" role="tab" data-view="downloads" aria-controls="view-downloads" aria-selected="false" tabindex="-1">Downloads</button>
+          <button class="panel-tab" id="tab-scratchpad" type="button" role="tab" data-view="scratchpad" aria-controls="view-scratchpad" aria-selected="false" tabindex="-1">Scratchpad</button>
+          <button class="panel-tab" id="tab-settings" type="button" role="tab" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1">Settings</button>
+        </div>
+        <button id="panel-close" class="icon-btn" type="button" aria-label="Close panel (Esc)" title="Close — Esc">
+          <svg class="icon" aria-hidden="true"><use href="#i-x" /></svg>
+        </button>
+      </header>
+
+      <div class="panel-body">
+        <!-- Bookmarks -->
+        <section id="view-bookmarks" class="view" role="tabpanel" aria-labelledby="tab-bookmarks" tabindex="0" data-view="bookmarks" hidden>
+          <div class="view-tools">
+            <label class="field-grow">
+              <span class="sr-only">Search bookmarks</span>
+              <input id="bm-search" type="search" placeholder="Search bookmarks" />
+            </label>
+            <select id="bm-folder" aria-label="Filter by folder">
+              <option value="">All folders</option>
+            </select>
+            <button id="bm-refresh" class="btn" type="button">Refresh</button>
+          </div>
+          <p id="bm-error" class="inline-error" role="alert" hidden></p>
+          <ul id="bm-list" class="rows" aria-label="Bookmark list"></ul>
+          <p id="bm-empty" class="empty" hidden>No bookmarks yet. Press the star in the toolbar to save the current page.</p>
+          <p id="bm-loading" class="empty" hidden>Loading…</p>
+        </section>
+
+        <!-- History -->
+        <section id="view-history" class="view" role="tabpanel" aria-labelledby="tab-history" tabindex="0" data-view="history" hidden>
+          <div class="view-tools">
+            <label class="field-grow">
+              <span class="sr-only">Search history</span>
+              <input id="hs-search" type="search" placeholder="Search history" />
+            </label>
+            <span id="hs-count" class="meta"></span>
+            <button id="hs-refresh" class="btn" type="button">Refresh</button>
+          </div>
+          <p id="hs-error" class="inline-error" role="alert" hidden></p>
+          <ul id="hs-list" class="rows" aria-label="History list"></ul>
+          <p id="hs-empty" class="empty" hidden>No history yet.</p>
+          <p id="hs-loading" class="empty" hidden>Loading…</p>
+        </section>
+
+        <!-- Downloads -->
+        <section id="view-downloads" class="view" role="tabpanel" aria-labelledby="tab-downloads" tabindex="0" data-view="downloads" hidden>
+          <div class="view-tools">
+            <span class="meta">Files the runtime reported. Records only — files live on disk where the runtime saved them.</span>
+            <button id="dl-clear" class="btn" type="button">Clear completed</button>
+            <button id="dl-refresh" class="btn" type="button">Refresh</button>
+          </div>
+          <p id="dl-error" class="inline-error" role="alert" hidden></p>
+          <ul id="dl-list" class="rows" aria-label="Download list"></ul>
+          <p id="dl-empty" class="empty" hidden>No downloads recorded.</p>
+          <p id="dl-loading" class="empty" hidden>Loading…</p>
+        </section>
+
+        <!-- Scratchpad -->
+        <section id="view-scratchpad" class="view view-split" role="tabpanel" aria-labelledby="tab-scratchpad" tabindex="0" data-view="scratchpad" hidden>
+          <div class="split-col">
+            <div class="view-tools">
+              <button id="sc-new" class="btn btn-primary" type="button">New note</button>
+              <button id="sc-refresh" class="btn" type="button">Refresh</button>
+            </div>
+            <p id="sc-error" class="inline-error" role="alert" hidden></p>
+            <ul id="sc-list" class="rows" aria-label="Notes"></ul>
+            <p id="sc-empty" class="empty" hidden>No notes yet.</p>
+            <p id="sc-loading" class="empty" hidden>Loading…</p>
+          </div>
+          <div class="split-col split-main">
+            <p id="sc-none" class="empty">Select a note, or create one.</p>
+            <form id="sc-editor" hidden>
+              <label class="stack">
+                <span>Title</span>
+                <input id="sc-title" type="text" maxlength="200" />
+              </label>
+              <label class="stack">
+                <span>Note</span>
+                <textarea id="sc-body" rows="8"></textarea>
+              </label>
+              <div class="view-tools">
+                <button id="sc-save" class="btn btn-primary" type="submit">Save</button>
+                <button id="sc-delete" class="btn btn-danger" type="button">Delete</button>
+                <span id="sc-rev" class="meta"></span>
+              </div>
+              <p id="sc-editor-error" class="inline-error" role="alert" hidden></p>
+            </form>
+          </div>
+        </section>
+
+        <!-- Settings -->
+        <section id="view-settings" class="view" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" data-view="settings" hidden>
+          <p id="st-error" class="inline-error" role="alert" hidden></p>
+
+          <h3 class="group-title">Browsing</h3>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span class="setting-label">Record history<em id="st-history-hint" class="hint"></em></span>
+              <input id="st-history" type="checkbox" role="switch" />
+            </label>
+            <label class="setting-row">
+              <span class="setting-label">Home page<em id="st-home-hint" class="hint"></em></span>
+              <input id="st-home" type="url" inputmode="url" placeholder="about:blank" />
+            </label>
+            <label class="setting-row">
+              <span class="setting-label">Search engine<em id="st-engine-hint" class="hint"></em></span>
+              <select id="st-engine">
+                <option value="duckduckgo">DuckDuckGo</option>
+                <option value="google">Google</option>
+                <option value="bing">Bing</option>
+                <option value="wikipedia">Wikipedia</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span class="setting-label">Zoom (%)<em id="st-zoom-hint" class="hint"></em></span>
+              <input id="st-zoom" type="number" min="10" max="300" step="5" />
+            </label>
+            <label class="setting-row">
+              <span class="setting-label">Theme<em id="st-theme-hint" class="hint"></em></span>
+              <select id="st-theme">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark" disabled>Dark — palette not defined in DESIGN.md</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span class="setting-label">Restore session on start<em id="st-restore-hint" class="hint"></em></span>
+              <input id="st-restore" type="checkbox" role="switch" />
+            </label>
+          </div>
+          <p id="st-save-status" class="meta" role="status" aria-live="polite"></p>
+
+          <h3 class="group-title">Clear browsing data</h3>
+          <div class="card">
+            <div class="view-tools">
+              <label class="stack">
+                <span>Time range</span>
+                <select id="cl-range">
+                  <option value="3600000">Past hour</option>
+                  <option value="86400000">Past 24 hours</option>
+                  <option value="604800000">Past 7 days</option>
+                  <option value="all" selected>All time</option>
+                </select>
+              </label>
+            </div>
+            <fieldset class="scopes">
+              <legend>Remove</legend>
+              <label><input type="checkbox" id="cl-history" checked /> Browsing history (visits in the selected range)</label>
+              <label><input type="checkbox" id="cl-downloads" /> Download records (finished, all time — files on disk are not touched)</label>
+              <label><input type="checkbox" id="cl-session" /> Saved session (open tabs from last time)</label>
+            </fieldset>
+            <div class="view-tools">
+              <button id="cl-run" class="btn btn-danger" type="button">Clear data</button>
+            </div>
+            <p id="cl-result" class="meta" role="status" aria-live="polite"></p>
+            <p id="cl-error" class="inline-error" role="alert" hidden></p>
+          </div>
+
+          <h3 class="group-title">Store integrity</h3>
+          <div class="card">
+            <div class="view-tools">
+              <button id="ig-run" class="btn" type="button">Run integrity check</button>
+              <span id="ig-result" class="meta" role="status" aria-live="polite"></span>
+            </div>
+            <p id="ig-error" class="inline-error" role="alert" hidden></p>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- External-protocol confirmation (contract §4.3) -->
+    <dialog id="external-dialog" aria-labelledby="ext-title">
+      <h2 id="ext-title" class="dialog-title">Open an external application?</h2>
+      <p class="dialog-lede">
+        This address uses the <strong id="ext-scheme"></strong> protocol, which
+        Windows handles outside Ritam Browser.
+      </p>
+      <dl class="dialog-facts">
+        <dt>From</dt><dd id="ext-origin"></dd>
+        <dt>Address</dt><dd id="ext-url" class="break"></dd>
+      </dl>
+      <div class="dialog-actions">
+        <button id="ext-cancel" class="btn" type="button">Cancel</button>
+        <button id="ext-open" class="btn btn-primary" type="button">Open in the OS</button>
+      </div>
+    </dialog>
+
+    <!-- Engine status + rule-3 verification (contract §8.4) -->
+    <dialog id="engine-dialog" aria-labelledby="eng-title">
+      <header class="dialog-head">
+        <img src="ritam-logo-128.png" width="40" height="40" alt="" />
+        <div>
+          <h2 id="eng-title" class="dialog-title">Ritam engine</h2>
+          <p id="eng-status" class="dialog-lede"></p>
+        </div>
+      </header>
+      <dl class="dialog-facts" id="eng-facts"></dl>
+      <div class="dialog-actions">
+        <button id="eng-close" class="btn" type="button">Close</button>
+        <button id="eng-verify" class="btn btn-primary" type="button">Run CLI-vs-CDP verification</button>
+      </div>
+      <p id="eng-verify-status" class="meta" role="status" aria-live="polite"></p>
+      <pre id="eng-verify-body" class="report" hidden></pre>
+    </dialog>
+
+    <script src="chrome.js" defer></script>
+  </body>
+</html>

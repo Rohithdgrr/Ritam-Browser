@@ -1,0 +1,15 @@
+[package]
+name = "ritam-store"
+version = "0.1.0"
+edition = "2021"
+description = "Ritam Browser local persistence: SQLite WAL, versioned migrations, single-writer actor"
+license = "proprietary"
+
+[dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+serde_json = "1"

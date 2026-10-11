@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>New tab</title>
+    <link rel="icon" type="image/png" href="ritam-logo-32.png" />
+    <link rel="stylesheet" href="newtab.css" />
+  </head>
+  <!--
+    New tab (Govinda). Served from the app origin inside a content webview,
+    which deliberately has no IPC capability (capabilities/chrome.json) —
+    this page is static by design: no script, no network, no fake widgets.
+  -->
+  <body>
+    <main>
+      <img class="logo" src="ritam-logo-128.png" width="96" height="96" alt="Ritam Browser logo" />
+      <h1>Ritam Browser</h1>
+      <p class="tagline">Cosmic truth and universal order</p>
+      <p class="hint">
+        Type an address or search in the toolbar above, or press
+        <kbd>Ctrl</kbd>+<kbd>L</kbd> to focus it.
+      </p>
+      <ul class="keys">
+        <li><kbd>Ctrl</kbd>+<kbd>T</kbd> new tab</li>
+        <li><kbd>Ctrl</kbd>+<kbd>W</kbd> close tab</li>
+        <li><kbd>Ctrl</kbd>+<kbd>H</kbd> history · <kbd>Ctrl</kbd>+<kbd>J</kbd> downloads</li>
+        <li><kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> back / forward</li>
+      </ul>
+    </main>
+  </body>
+</html>

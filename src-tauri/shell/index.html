@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ritam Browser</title>
+    <link rel="stylesheet" href="shell.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#omnibox">Skip to address bar</a>
+
+    <header class="tabstrip" role="tablist" aria-label="Open tabs">
+      <div id="tabs" class="tabs"></div>
+      <button id="new-tab" class="icon-button" type="button" aria-label="New tab (Ctrl+T)" title="New tab — Ctrl+T">+</button>
+    </header>
+
+    <div class="toolbar" role="toolbar" aria-label="Navigation">
+      <button id="back" class="icon-button" type="button" aria-label="Back (Alt+Left)" title="Back — Alt+Left" disabled>‹</button>
+      <button id="forward" class="icon-button" type="button" aria-label="Forward (Alt+Right)" title="Forward — Alt+Right" disabled>›</button>
+      <button id="reload" class="icon-button" type="button" aria-label="Reload (Ctrl+R)" title="Reload — Ctrl+R">⟳</button>
+      <button id="home" class="icon-button" type="button" aria-label="Home" title="Home">⌂</button>
+
+      <form id="omnibox-form" class="omnibox-wrap" autocomplete="off">
+        <input
+          id="omnibox"
+          class="omnibox"
+          type="text"
+          spellcheck="false"
+          aria-label="Address and search bar"
+          placeholder="Search or enter address"
+        />
+        <span id="origin-chip" class="origin-chip" hidden></span>
+      </form>
+
+      <button id="verify" class="ghost-button" type="button" title="Run the same page probe through the Obscura CLI and over CDP, then compare byte-for-byte">
+        Verify with Obscura
+      </button>
+    </div>
+
+    <footer class="statusbar">
+      <span id="engine-pill" class="engine-pill" role="status" aria-live="polite">Engine: checking…</span>
+      <span id="status" class="status" role="status" aria-live="polite"></span>
+    </footer>
+
+    <section id="verify-panel" class="verify-panel" hidden aria-labelledby="verify-title">
+      <div class="verify-head">
+        <h2 id="verify-title">Obscura engine verification</h2>
+        <button id="verify-close" class="ghost-button" type="button" aria-label="Close verification panel">Close</button>
+      </div>
+      <p id="verify-summary" class="verify-summary"></p>
+      <pre id="verify-body" class="verify-body"></pre>
+    </section>
+
+    <dialog id="external-dialog" class="external-dialog" aria-labelledby="external-title">
+      <h2 id="external-title">Open with another application?</h2>
+      <p>Ritam Browser is asking to hand this address to an application outside the browser.</p>
+      <dl class="external-details">
+        <dt>Scheme</dt><dd id="external-scheme"></dd>
+        <dt>Origin</dt><dd id="external-origin"></dd>
+        <dt>Address</dt><dd id="external-url"></dd>
+      </dl>
+      <div class="dialog-actions">
+        <button id="external-cancel" class="ghost-button" type="button">Cancel</button>
+        <button id="external-open" class="primary-button" type="button">Open application</button>
+      </div>
+    </dialog>
+
+    <script type="module" src="shell.js"></script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "chrome",
+  "description": "Ritam Browser chrome webview (app origin). Matched by webview label on purpose: the window is labelled `main`, and matching the window instead would also grant permissions to the unlisted content tab webviews (contract §1 targets), which must never invoke a command.",
+  "webviews": ["chrome"],
+  "permissions": ["core:default"]
+}
