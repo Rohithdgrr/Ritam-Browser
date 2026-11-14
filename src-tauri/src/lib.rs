@@ -15,12 +15,20 @@ use webview::TabWebviewManager;
 /// The handler only acts while the Govind window is focused.
 const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+T", "new-tab"),
+    ("Ctrl+Shift+N", "new-private-tab"),
+    ("Ctrl+Shift+T", "undo-close"),
     ("Ctrl+W", "close-tab"),
     ("Ctrl+K", "palette"),
     ("Ctrl+L", "focus-omnibar"),
     ("Ctrl+R", "reload"),
     ("Ctrl+D", "bookmark"),
     ("Ctrl+F", "find"),
+    ("Ctrl+P", "print"),
+    ("Ctrl+Shift+A", "tab-search"),
+    ("Alt+Shift+M", "mute-tab"),
+    ("Alt+Shift+D", "force-dark-websites"),
+    ("Alt+Shift+T", "translate-page"),
+    ("Alt+Shift+R", "read-aloud"),
     ("F11", "fullscreen"),
     ("Ctrl+,", "settings"),
     ("Ctrl+1", "tab-1"),
@@ -81,6 +89,8 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        // Native open/save dialogs for bookmark import/export.
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             ShortcutBuilder::new()
                 .with_handler(|app, shortcut, event| {
@@ -102,6 +112,15 @@ pub fn run() {
         )
         .manage(TabWebviewManager::new())
         .setup(|app| {
+            app.on_menu_event(|app, event| {
+                let id = event.id().as_ref();
+                if id.starts_with("menu-") {
+                    if let Err(error) = app.emit_to("main", "more-menu-action", id.to_string()) {
+                        log::warn!("could not forward browser menu action: {error}");
+                    }
+                }
+            });
+
             let db = db::init(app.handle())?;
             app.manage(db);
 
@@ -128,14 +147,18 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::menu::show_more_menu,
             // Tabs & navigation
             commands::tabs::create_tab,
             commands::tabs::list_tabs,
             commands::tabs::activate_tab,
             commands::tabs::close_tab,
             commands::tabs::navigate_tab,
+            commands::tabs::navigate_private_tab,
+            commands::tabs::close_private_tab,
             commands::tabs::update_tab_meta,
             commands::tabs::toggle_pin_tab,
+            commands::tabs::set_tab_group,
             commands::tabs::reorder_tab,
             commands::tabs::go_back,
             commands::tabs::go_forward,
@@ -143,6 +166,20 @@ pub fn run() {
             commands::tabs::print_tab,
             commands::tabs::zoom_tab,
             commands::tabs::find_in_tab,
+            commands::tabs::reader_mode_tab,
+            commands::tabs::read_aloud_tab,
+            commands::tabs::set_tab_muted,
+            commands::tabs::set_force_dark_websites,
+            commands::tabs::request_page_translation,
+            commands::tabs::show_translated_page,
+            commands::tabs::restore_translated_page,
+            commands::tabs::set_spellcheck,
+            commands::tabs::set_do_not_track,
+            commands::tabs::set_content_blocking,
+            commands::tabs::set_autofill_profiles,
+            commands::tabs::request_page_snapshot,
+            commands::tabs::clear_site_data,
+            commands::tabs::bypass_unsafe_url,
             commands::tabs::inspect_tab,
             commands::tabs::duplicate_tab,
             commands::tabs::close_other_tabs,
@@ -168,6 +205,16 @@ pub fn run() {
             commands::data::record_download,
             commands::data::clear_downloads,
             commands::data::remove_download,
+            // Reading list ("save for later")
+            commands::data::list_reading_items,
+            commands::data::save_reading_item,
+            commands::data::delete_reading_item,
+            commands::data::clear_reading_list,
+            // Bookmark import / export (Netscape format — Chrome/Firefox/Edge)
+            commands::bookmarks_io::import_bookmarks_file,
+            commands::bookmarks_io::export_bookmarks_file,
+            commands::bookmarks_io::import_bookmarks_html,
+            commands::bookmarks_io::export_bookmarks_html,
             // Settings & privacy
             commands::settings::get_settings,
             commands::settings::set_setting,

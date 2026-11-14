@@ -14,13 +14,14 @@ fn row_to_tab(row: &rusqlite::Row) -> rusqlite::Result<Tab> {
         title: row.get(3)?,
         favicon_url: row.get(4)?,
         is_pinned: row.get(5)?,
-        sort_order: row.get(6)?,
-        created_at: row.get(7)?,
-        last_active_at: row.get(8)?,
+        group_name: row.get(6)?,
+        sort_order: row.get(7)?,
+        created_at: row.get(8)?,
+        last_active_at: row.get(9)?,
     })
 }
 
-const TAB_COLS: &str = "id, workspace_id, url, title, favicon_url, is_pinned, sort_order, created_at, last_active_at";
+const TAB_COLS: &str = "id, workspace_id, url, title, favicon_url, is_pinned, group_name, sort_order, created_at, last_active_at";
 
 pub fn get_tab(conn: &rusqlite::Connection, tab_id: &str) -> Result<Tab, AppError> {
     conn.query_row(
@@ -163,6 +164,7 @@ pub fn close_tab(
     let workspace_id = tab.workspace_id.clone();
 
     manager.close_view(&tab_id);
+    manager.remove_tab_state(&tab_id);
     conn.execute("DELETE FROM tabs WHERE id = ?1", params![tab_id])?;
 
     // Pick the next tab to activate: most recently used in this workspace…
@@ -211,7 +213,7 @@ pub async fn navigate_tab(
 ) -> Result<Tab, AppError> {
     let target = validate_navigation_url(&url)?;
     let manager = app.state::<TabWebviewManager>();
-    manager.navigate(&app, &tab_id, &target).await?;
+    manager.navigate(&app, &tab_id, &target, false).await?;
 
     let db = app.state::<DbState>();
     let conn = db.conn();
@@ -221,6 +223,26 @@ pub async fn navigate_tab(
         params![target, title, now_ms(), tab_id],
     )?;
     get_tab(&conn, &tab_id)
+}
+
+#[tauri::command]
+pub async fn navigate_private_tab(
+    app: AppHandle,
+    tab_id: String,
+    url: String,
+) -> Result<(), AppError> {
+    let target = validate_navigation_url(&url)?;
+    app.state::<TabWebviewManager>()
+        .navigate(&app, &tab_id, &target, true)
+        .await
+}
+
+#[tauri::command]
+pub fn close_private_tab(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+) {
+    manager.close_private_tab(&tab_id);
 }
 
 #[tauri::command]
@@ -259,6 +281,23 @@ pub fn update_tab_meta(
 pub fn toggle_pin_tab(db: State<'_, DbState>, tab_id: String) -> Result<Tab, AppError> {
     let conn = db.conn();
     conn.execute("UPDATE tabs SET is_pinned = 1 - is_pinned WHERE id = ?1", params![tab_id])?;
+    get_tab(&conn, &tab_id)
+}
+
+#[tauri::command]
+pub fn set_tab_group(
+    db: State<'_, DbState>,
+    tab_id: String,
+    group_name: Option<String>,
+) -> Result<Tab, AppError> {
+    let group_name = group_name
+        .map(|name| name.trim().chars().take(40).collect::<String>())
+        .filter(|name| !name.is_empty());
+    let conn = db.conn();
+    conn.execute(
+        "UPDATE tabs SET group_name = ?1 WHERE id = ?2",
+        params![group_name, tab_id],
+    )?;
     get_tab(&conn, &tab_id)
 }
 
@@ -341,6 +380,161 @@ pub fn find_in_tab(
     }
 }
 
+#[tauri::command]
+pub fn reader_mode_tab(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: Option<String>,
+    enabled: bool,
+) {
+    if let Some(id) = tab_id {
+        manager.reader_mode(&id, enabled);
+    }
+}
+
+#[tauri::command]
+pub fn read_aloud_tab(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+) -> Result<(), AppError> {
+    if manager.read_aloud(&tab_id) {
+        Ok(())
+    } else {
+        Err(AppError::NotFound("tab webview not found".into()))
+    }
+}
+
+#[tauri::command]
+pub fn set_tab_muted(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+    muted: bool,
+) -> Result<(), AppError> {
+    if manager.set_tab_muted(&tab_id, muted) {
+        Ok(())
+    } else {
+        Err(AppError::NotFound("tab webview not found".into()))
+    }
+}
+
+#[tauri::command]
+pub fn set_force_dark_websites(manager: State<'_, TabWebviewManager>, enabled: bool) {
+    manager.set_force_dark_websites(enabled);
+}
+
+#[tauri::command]
+pub fn request_page_translation(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+    request_id: String,
+) -> Result<(), AppError> {
+    if request_id.is_empty() || request_id.len() > 128 {
+        return Err(AppError::InvalidInput("invalid translation request id".into()));
+    }
+    if manager.request_page_translation(&tab_id, &request_id) {
+        Ok(())
+    } else {
+        Err(AppError::NotFound("tab webview not found".into()))
+    }
+}
+
+#[tauri::command]
+pub fn show_translated_page(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+    expected_url: String,
+    title: String,
+    text: String,
+) -> Result<(), AppError> {
+    if title.len() > 1000 || text.len() > 100_000 {
+        return Err(AppError::InvalidInput("translated page is too large".into()));
+    }
+    if manager.show_translated_page(&tab_id, &expected_url, &title, &text) {
+        Ok(())
+    } else {
+        Err(AppError::InvalidInput("page changed before translation completed".into()))
+    }
+}
+
+#[tauri::command]
+pub fn restore_translated_page(manager: State<'_, TabWebviewManager>, tab_id: String) {
+    manager.restore_translated_page(&tab_id);
+}
+
+#[tauri::command]
+pub fn set_spellcheck(manager: State<'_, TabWebviewManager>, enabled: bool) {
+    manager.set_spellcheck(enabled);
+}
+
+#[tauri::command]
+pub fn set_do_not_track(manager: State<'_, TabWebviewManager>, enabled: bool) {
+    manager.set_do_not_track(enabled);
+}
+
+/// Push cosmetic content-blocking selectors into every page. The value is the
+/// same `cosmetic_filters` setting string (validated by `set_setting`).
+#[tauri::command]
+pub fn set_content_blocking(manager: State<'_, TabWebviewManager>, css: String) -> Result<(), AppError> {
+    if css.len() > 50_000 {
+        return Err(AppError::InvalidInput("filter list too large".into()));
+    }
+    manager.set_content_blocking(css);
+    Ok(())
+}
+
+/// Push the JSON autofill-profile array into every page.
+#[tauri::command]
+pub fn set_autofill_profiles(manager: State<'_, TabWebviewManager>, profiles_json: String) -> Result<(), AppError> {
+    if profiles_json.len() > 100_000 {
+        return Err(AppError::InvalidInput("autofill profiles too large".into()));
+    }
+    let parsed: serde_json::Value = serde_json::from_str(&profiles_json)
+        .map_err(|_| AppError::InvalidInput("autofill profiles must be a JSON array".into()))?;
+    if !parsed.is_array() || parsed.as_array().map(|a| a.len()).unwrap_or(0) > 50 {
+        return Err(AppError::InvalidInput("autofill profiles must be an array of at most 50 entries".into()));
+    }
+    manager.set_autofill_profiles(profiles_json);
+    Ok(())
+}
+
+/// Capture the page's visible text for an offline reading-list snapshot.
+/// The result arrives on the `tab-snapshot-data` event.
+#[tauri::command]
+pub fn request_page_snapshot(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+    request_id: String,
+) -> Result<(), AppError> {
+    if request_id.is_empty() || request_id.len() > 128 {
+        return Err(AppError::InvalidInput("invalid snapshot request id".into()));
+    }
+    if manager.request_page_snapshot(&tab_id, &request_id) {
+        Ok(())
+    } else {
+        Err(AppError::NotFound("tab webview not found".into()))
+    }
+}
+
+/// Expire cookies and clear origin storage for the page's site.
+#[tauri::command]
+pub fn clear_site_data(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+) -> Result<(), AppError> {
+    if manager.clear_site_data(&tab_id) {
+        Ok(())
+    } else {
+        Err(AppError::NotFound("tab webview not found".into()))
+    }
+}
+
+/// The user chose to visit a safe-browsing-blocklisted URL anyway.
+#[tauri::command]
+pub fn bypass_unsafe_url(manager: State<'_, TabWebviewManager>, url: String) -> Result<(), AppError> {
+    let target = validate_navigation_url(&url)?;
+    manager.bypass_unsafe_url(&target);
+    Ok(())
+}
+
 /// Open the engine DevTools for a tab's page.
 #[tauri::command]
 pub fn inspect_tab(manager: State<'_, TabWebviewManager>, tab_id: Option<String>) {
@@ -374,15 +568,15 @@ pub async fn duplicate_tab(
         )?;
         let now = now_ms();
         conn.execute(
-            "INSERT INTO tabs (id, workspace_id, url, title, favicon_url, is_pinned, sort_order, created_at, last_active_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?7)",
-            params![new_id, source.workspace_id, source.url, source.title, source.favicon_url, order, now],
+            "INSERT INTO tabs (id, workspace_id, url, title, favicon_url, is_pinned, group_name, sort_order, created_at, last_active_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?8)",
+            params![new_id, source.workspace_id, source.url, source.title, source.favicon_url, source.group_name, order, now],
         )?;
     }
 
     // Web pages need a fresh webview; internal pages are shell-rendered.
     if !crate::navigation::is_internal_url(&source.url) {
-        manager.navigate(&app, &new_id, &source.url).await?;
+        manager.navigate(&app, &new_id, &source.url, false).await?;
     }
     let conn = db.conn();
     get_tab(&conn, &new_id)

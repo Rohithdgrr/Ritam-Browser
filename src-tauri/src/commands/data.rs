@@ -2,7 +2,7 @@
 
 use crate::db::{now_ms, DbState};
 use crate::error::AppError;
-use crate::models::{Bookmark, Download, HistoryEntry, Note};
+use crate::models::{Bookmark, Download, HistoryEntry, Note, ReadingItem};
 use crate::navigation::validate_saved_url;
 use rusqlite::params;
 use tauri::State;
@@ -338,4 +338,92 @@ pub fn remove_download(db: State<'_, DbState>, download_id: String) -> Result<bo
     let conn = db.conn();
     let changed = conn.execute("DELETE FROM downloads WHERE id = ?1", params![download_id])?;
     Ok(changed > 0)
+}
+
+// ── Reading list ("save for later") ───────────────────────────────────
+
+fn row_to_reading(row: &rusqlite::Row) -> rusqlite::Result<ReadingItem> {
+    Ok(ReadingItem {
+        id: row.get(0)?,
+        url: row.get(1)?,
+        title: row.get(2)?,
+        snapshot_text: row.get(3)?,
+        note: row.get(4)?,
+        created_at: row.get(5)?,
+    })
+}
+const READING_COLS: &str = "id, url, title, snapshot_text, note, created_at";
+
+#[tauri::command]
+pub fn list_reading_items(db: State<'_, DbState>) -> Result<Vec<ReadingItem>, AppError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {READING_COLS} FROM reading_list ORDER BY created_at DESC"
+    ))?;
+    let rows = stmt.query_map([], row_to_reading)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// Save a page to the reading list. `snapshot_text` is an offline text capture
+/// of the page taken by the shell (may be absent); re-saving the same URL
+/// refreshes title/note/snapshot instead of duplicating.
+#[tauri::command]
+pub fn save_reading_item(
+    db: State<'_, DbState>,
+    url: String,
+    title: Option<String>,
+    snapshot_text: Option<String>,
+    note: Option<String>,
+) -> Result<ReadingItem, AppError> {
+    let target = validate_saved_url(&url)?;
+    if target.starts_with("govind://") {
+        return Err(AppError::InvalidInput("cannot save an internal page".into()));
+    }
+    let clean_title: String = title
+        .as_deref()
+        .unwrap_or(&target)
+        .chars()
+        .take(500)
+        .collect();
+    let clean_note: Option<String> = note
+        .map(|n| n.chars().take(2_000).collect::<String>())
+        .filter(|n| !n.trim().is_empty());
+    let clean_snapshot: Option<String> = snapshot_text
+        .map(|s| s.chars().take(100_000).collect::<String>())
+        .filter(|s| !s.trim().is_empty());
+    let conn = db.conn();
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO reading_list (id, url, title, snapshot_text, note, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(url) DO UPDATE SET
+           title = excluded.title,
+           snapshot_text = COALESCE(excluded.snapshot_text, reading_list.snapshot_text),
+           note = COALESCE(excluded.note, reading_list.note)",
+        params![id, target, clean_title, clean_snapshot, clean_note, now_ms()],
+    )?;
+    let item = conn.query_row(
+        &format!("SELECT {READING_COLS} FROM reading_list WHERE url = ?1"),
+        params![target],
+        row_to_reading,
+    )?;
+    Ok(item)
+}
+
+#[tauri::command]
+pub fn delete_reading_item(db: State<'_, DbState>, item_id: String) -> Result<bool, AppError> {
+    let conn = db.conn();
+    let changed = conn.execute("DELETE FROM reading_list WHERE id = ?1", params![item_id])?;
+    Ok(changed > 0)
+}
+
+#[tauri::command]
+pub fn clear_reading_list(db: State<'_, DbState>) -> Result<i64, AppError> {
+    let conn = db.conn();
+    let changed = conn.execute("DELETE FROM reading_list", [])?;
+    Ok(changed as i64)
 }

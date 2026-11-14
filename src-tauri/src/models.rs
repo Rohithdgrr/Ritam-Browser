@@ -17,6 +17,7 @@ pub struct Tab {
     pub title: String,
     pub favicon_url: Option<String>,
     pub is_pinned: i64,
+    pub group_name: Option<String>,
     pub sort_order: i64,
     pub created_at: i64,
     pub last_active_at: i64,
@@ -62,6 +63,16 @@ pub struct Download {
     pub status: String,
     pub created_at: i64,
     pub completed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReadingItem {
+    pub id: String,
+    pub url: String,
+    pub title: String,
+    pub snapshot_text: Option<String>,
+    pub note: Option<String>,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -51,6 +51,21 @@ export async function isFullscreen() {
   const w = currentWindow();
   return w ? await w.isFullscreen() : false;
 }
+export const setTabMuted = (tabId, muted) => invoke('set_tab_muted', { tabId, muted });
+export const setForceDarkWebsites = (enabled) => invoke('set_force_dark_websites', { enabled });
+export const requestPageTranslation = (tabId, requestId) =>
+  invoke('request_page_translation', { tabId, requestId });
+export const showTranslatedPage = (tabId, expectedUrl, title, text) =>
+  invoke('show_translated_page', { tabId, expectedUrl, title, text });
+export const restoreTranslatedPage = (tabId) => invoke('restore_translated_page', { tabId });
+export const setSpellcheck = (enabled) => invoke('set_spellcheck', { enabled });
+export const setDoNotTrack = (enabled) => invoke('set_do_not_track', { enabled });
+export const setContentBlocking = (css) => invoke('set_content_blocking', { css });
+export const setAutofillProfiles = (profilesJson) => invoke('set_autofill_profiles', { profilesJson });
+export const requestPageSnapshot = (tabId, requestId) =>
+  invoke('request_page_snapshot', { tabId, requestId });
+export const clearSiteData = (tabId) => invoke('clear_site_data', { tabId });
+export const bypassUnsafeUrl = (url) => invoke('bypass_unsafe_url', { url });
 
 // ── Browser / tab surface ─────────────────────────────────────────────
 export const createTab = ({ workspaceId, url } = {}) => invoke('create_tab', { workspaceId, url });
@@ -58,18 +73,24 @@ export const listTabs = ({ workspaceId } = {}) => invoke('list_tabs', { workspac
 export const activateTab = (tabId) => invoke('activate_tab', { tabId });
 export const closeTab = (tabId) => invoke('close_tab', { tabId });
 export const navigateTab = (tabId, url) => invoke('navigate_tab', { tabId, url });
+export const navigatePrivateTab = (tabId, url) => invoke('navigate_private_tab', { tabId, url });
 export const updateTabMeta = (tabId, meta = {}) =>
   invoke('update_tab_meta', { tabId, ...meta });
+export const closePrivateTab = (tabId) => invoke('close_private_tab', { tabId });
 export const togglePinTab = (tabId) => invoke('toggle_pin_tab', { tabId });
+export const setTabGroup = (tabId, groupName) => invoke('set_tab_group', { tabId, groupName });
 export const reorderTab = (tabId, direction) => invoke('reorder_tab', { tabId, direction });
 export const goBack = (tabId) => invoke('go_back', { tabId });
 export const goForward = (tabId) => invoke('go_forward', { tabId });
 export const reloadTab = (tabId) => invoke('reload_tab', { tabId });
 export const syncTabWindows = (args = {}) => invoke('sync_tab_windows', args);
+export const showMoreMenu = (x, y) => invoke('show_more_menu', { x, y });
 export const printTab = (tabId) => invoke('print_tab', { tabId });
 export const zoomTab = (tabId, factor) => invoke('zoom_tab', { tabId, factor });
 export const findInTab = (tabId, query, forward = true) =>
   invoke('find_in_tab', { tabId, query, forward });
+export const readerModeTab = (tabId, enabled) => invoke('reader_mode_tab', { tabId, enabled });
+export const readAloudTab = (tabId) => invoke('read_aloud_tab', { tabId });
 export const inspectTab = (tabId) => invoke('inspect_tab', { tabId });
 export const duplicateTab = (tabId) => invoke('duplicate_tab', { tabId });
 export const closeOtherTabs = (tabId, scope) => invoke('close_other_tabs', { tabId, scope });
@@ -88,6 +109,13 @@ export const saveBookmark = (title, url, isFavorite = 0) =>
 export const deleteBookmark = (bookmarkId) => invoke('delete_bookmark', { bookmarkId });
 export const toggleFavorite = (bookmarkId) => invoke('toggle_favorite', { bookmarkId });
 
+// Import / export (Netscape HTML — Chrome/Firefox/Edge). The native commands
+// open an OS file dialog; the *_html variants work in the browser preview.
+export const importBookmarksFile = () => invoke('import_bookmarks_file');
+export const exportBookmarksFile = () => invoke('export_bookmarks_file');
+export const importBookmarksHtml = (html) => invoke('import_bookmarks_html', { html });
+export const exportBookmarksHtml = () => invoke('export_bookmarks_html');
+
 // ── History ───────────────────────────────────────────────────────────
 export const searchHistory = (query = '', limit = 100) => invoke('search_history', { query, limit });
 export const addHistoryEntry = (url, title) => invoke('add_history_entry', { url, title });
@@ -105,6 +133,13 @@ export const recordDownload = ({ url, filename, destination, totalBytes, mimeTyp
   invoke('record_download', { url, filename, destination, totalBytes, mimeType });
 export const clearDownloads = () => invoke('clear_downloads');
 export const removeDownload = (downloadId) => invoke('remove_download', { downloadId });
+
+// ── Reading list ("save for later") ───────────────────────────────────
+export const listReadingItems = () => invoke('list_reading_items');
+export const saveReadingItem = ({ url, title, snapshotText, note } = {}) =>
+  invoke('save_reading_item', { url, title, snapshotText, note });
+export const deleteReadingItem = (itemId) => invoke('delete_reading_item', { itemId });
+export const clearReadingList = () => invoke('clear_reading_list');
 
 // ── Settings & privacy ────────────────────────────────────────────────
 export const getSettings = () => invoke('get_settings');

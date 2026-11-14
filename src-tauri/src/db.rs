@@ -38,6 +38,14 @@ pub fn init(app: &AppHandle) -> Result<DbState, AppError> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute_batch(SCHEMA)?;
+    let has_group_name = {
+        let mut stmt = conn.prepare("PRAGMA table_info(tabs)")?;
+        let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        columns.collect::<Result<Vec<_>, _>>()?.iter().any(|name| name == "group_name")
+    };
+    if !has_group_name {
+        conn.execute("ALTER TABLE tabs ADD COLUMN group_name TEXT", [])?;
+    }
 
     // First-run seeding: one workspace, no tabs (a home tab opens in the UI),
     // three removable favorites.

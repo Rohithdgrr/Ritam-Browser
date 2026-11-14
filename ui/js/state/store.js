@@ -12,6 +12,13 @@ export const store = {
   workspaces: [],
   activeWorkspaceId: null,
   tabs: [],            // tabs of the active workspace
+  privateTabs: [],      // private tabs exist only for this app session
+  closedTabs: [],       // recently closed regular tabs, kept in memory only
+  collapsedTabGroups: new Set(),
+  readerModeTabs: new Set(),
+  mutedTabs: new Set(),
+  audioStates: new Map(),
+  translatedTabs: new Set(),
   activeTabId: null,
   bookmarks: [],
   settings: {},
@@ -24,6 +31,13 @@ export const store = {
 
   /** Settings category shown on the settings page. */
   settingsCategory: 'general',
+
+  /** Guest mode: every new tab is private and nothing persists. */
+  guestMode: false,
+
+  /** Safe-browsing interstitial state. */
+  pendingUnsafeUrl: null,
+  pendingUnsafeReason: null,
 
   activeTab() {
     return this.tabs.find((t) => t.id === this.activeTabId) ?? null;
@@ -38,6 +52,10 @@ export const store = {
     return !!tab && tab.url.startsWith('govind://');
   },
 };
+
+export function tabGroupKey(tab) {
+  return `${encodeURIComponent(tab.workspace_id)}:${Number(tab.is_pinned)}:${encodeURIComponent(tab.group_name ?? '')}`;
+}
 
 /** Which shell view a tab URL belongs to. */
 export function viewForUrl(url) {
@@ -113,7 +131,11 @@ export async function initStore() {
 
 export async function refreshTabs() {
   if (!store.activeWorkspaceId) { store.tabs = []; return; }
-  store.tabs = await api.listTabs({ workspaceId: store.activeWorkspaceId });
+  const tabs = await api.listTabs({ workspaceId: store.activeWorkspaceId });
+  store.tabs = [
+    ...tabs,
+    ...store.privateTabs.filter((tab) => tab.workspace_id === store.activeWorkspaceId),
+  ].sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned) || a.sort_order - b.sort_order);
 }
 
 export async function refreshBookmarks() {
@@ -122,6 +144,7 @@ export async function refreshBookmarks() {
 
 // ── Tabs ──────────────────────────────────────────────────────────────
 export async function createTab(url = HOME_URL) {
+  if (store.guestMode) return createPrivateTab(url);
   const tab = await api.createTab({ workspaceId: store.activeWorkspaceId, url });
   await refreshTabs();
   store.activeTabId = tab.id;
@@ -131,9 +154,62 @@ export async function createTab(url = HOME_URL) {
   return tab;
 }
 
+export async function createPrivateTab(url = HOME_URL) {
+  const now = Date.now();
+  const id = globalThis.crypto?.randomUUID?.() ?? `${now}-${Math.random().toString(36).slice(2)}`;
+  const target = normalizeInput(url, {
+    searchEngine: store.settings.search_engine,
+    customSearchUrl: store.settings.custom_search_url,
+    httpsFirst: store.settings.https_first !== 'false',
+  })?.url ?? url;
+  const tab = {
+    id: `private-${id}`,
+    workspace_id: store.activeWorkspaceId,
+    url: target,
+    title: target === HOME_URL ? 'New Private Tab' : target,
+    favicon_url: null,
+    is_pinned: 0,
+    group_name: null,
+    sort_order: store.tabs.length,
+    created_at: now,
+    last_active_at: now,
+    is_private: true,
+  };
+  store.privateTabs.push(tab);
+  await refreshTabs();
+  store.activeTabId = tab.id;
+  if (target.startsWith('govind://')) pushInternalNav(tab.id, target);
+  applyViewForTab(tab);
+  await syncNativeViews();
+  return tab;
+}
+
 export async function closeTab(tabId) {
+  if (store.privateTabs.some((tab) => tab.id === tabId)) {
+    await api.closePrivateTab(tabId);
+    internalNav.delete(tabId);
+    store.readerModeTabs.delete(tabId);
+    store.mutedTabs.delete(tabId);
+    store.audioStates.delete(tabId);
+    store.translatedTabs.delete(tabId);
+    store.privateTabs = store.privateTabs.filter((tab) => tab.id !== tabId);
+    await refreshTabs();
+    store.activeTabId = store.tabs[0]?.id ?? null;
+    applyViewForTab(store.activeTab());
+    await syncNativeViews();
+    return { closed_id: tabId, active_tab_id: store.activeTabId };
+  }
+  const closedTab = store.tabs.find((tab) => tab.id === tabId);
   const result = await api.closeTab(tabId);
   internalNav.delete(tabId);
+  store.readerModeTabs.delete(tabId);
+  store.mutedTabs.delete(tabId);
+  store.audioStates.delete(tabId);
+  store.translatedTabs.delete(tabId);
+  if (closedTab && !closedTab.is_private) {
+    store.closedTabs.unshift({ ...closedTab, closed_at: Date.now() });
+    store.closedTabs = store.closedTabs.slice(0, 20);
+  }
   await refreshTabs();
   store.activeTabId = result.active_tab_id ?? store.tabs[0]?.id ?? null;
   applyViewForTab(store.activeTab());
@@ -142,7 +218,8 @@ export async function closeTab(tabId) {
 }
 
 export async function activateTab(tabId) {
-  await api.activateTab(tabId);
+  const privateTab = store.privateTabs.some((tab) => tab.id === tabId);
+  if (!privateTab) await api.activateTab(tabId);
   store.activeTabId = tabId;
   await refreshTabs();
   applyViewForTab(store.activeTab());
@@ -151,12 +228,75 @@ export async function activateTab(tabId) {
 }
 
 export async function togglePinTab(tabId) {
+  if (store.privateTabs.some((tab) => tab.id === tabId)) return store.privateTabs.find((tab) => tab.id === tabId);
   const tab = await api.togglePinTab(tabId);
   await refreshTabs();
   return tab;
 }
 
+export async function setTabGroup(tabId, groupName) {
+  const tab = store.tabs.find((item) => item.id === tabId);
+  if (!tab) return null;
+  const clean = String(groupName ?? '').trim().slice(0, 40) || null;
+  if (tab.is_private) {
+    tab.group_name = clean;
+    await refreshTabs();
+    return tab;
+  }
+  const updated = await api.setTabGroup(tabId, clean);
+  await refreshTabs();
+  return updated;
+}
+
+export async function reopenClosedTab(closedId) {
+  const closed = store.closedTabs.find((tab) => tab.id === closedId);
+  if (!closed) return null;
+  if (!store.workspaces.some((workspace) => workspace.id === closed.workspace_id)) {
+    store.closedTabs = store.closedTabs.filter((tab) => tab.id !== closedId);
+    return null;
+  }
+  if (store.activeWorkspaceId !== closed.workspace_id) {
+    await switchWorkspace(closed.workspace_id);
+  }
+  let reopened = await createTab(closed.url);
+  if (closed.is_pinned) reopened = await togglePinTab(reopened.id);
+  if (closed.group_name) reopened = await setTabGroup(reopened.id, closed.group_name);
+  store.closedTabs = store.closedTabs.filter((tab) => tab.id !== closedId);
+  return reopened;
+}
+
+export function clearClosedTabs() {
+  store.closedTabs = [];
+}
+
+export async function toggleReaderMode() {
+  const tab = store.activeTab();
+  if (!tab || store.isInternalTab(tab)) return false;
+  const enabled = !store.readerModeTabs.has(tab.id);
+  await api.readerModeTab(tab.id, enabled);
+  if (enabled) store.readerModeTabs.add(tab.id);
+  else store.readerModeTabs.delete(tab.id);
+  return enabled;
+}
+
 export async function reorderTab(tabId, direction) {
+  const privateTab = store.privateTabs.find((tab) => tab.id === tabId);
+  if (privateTab) {
+    const siblings = store.tabs
+      .filter((tab) => tab.workspace_id === privateTab.workspace_id)
+      .sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned) || a.sort_order - b.sort_order);
+    const index = siblings.findIndex((tab) => tab.id === tabId);
+    const next = direction === 'up' ? index - 1 : index + 1;
+    const target = siblings[next];
+    if (target && !target.is_pinned) {
+      const neighbor = siblings[next + (direction === 'up' ? -1 : 1)];
+      privateTab.sort_order = neighbor
+        ? (target.sort_order + neighbor.sort_order) / 2
+        : target.sort_order + (direction === 'up' ? -0.5 : 0.5);
+      await refreshTabs();
+    }
+    return store.tabs;
+  }
   store.tabs = await api.reorderTab(tabId, direction);
   return store.tabs;
 }
@@ -176,11 +316,27 @@ export async function navigate(rawInput) {
   const tabId = store.activeTabId;
   if (!tabId) return null;
 
+  const activeTab = store.activeTab();
+  store.audioStates.set(tabId, { playing: false, muted: store.mutedTabs.has(tabId) });
+  store.readerModeTabs.delete(tabId);
+  store.translatedTabs.delete(tabId);
+  if (activeTab?.is_private) {
+    await api.navigatePrivateTab(tabId, nav.url);
+    activeTab.url = nav.url;
+    activeTab.title = nav.url === HOME_URL ? 'New Private Tab' : nav.url;
+    activeTab.favicon_url = null;
+    if (nav.url.startsWith('govind://')) pushInternalNav(tabId, nav.url);
+    await refreshTabs();
+    applyViewForTab(activeTab);
+    await syncNativeViews();
+    return { tab: activeTab, nav };
+  }
+
   const tab = await api.navigateTab(tabId, nav.url);
 
   if (nav.url.startsWith('govind://')) {
     pushInternalNav(tabId, nav.url);
-  } else if (nav.url !== HOME_URL && !nav.url.startsWith('about:')) {
+  } else if (!activeTab?.is_private && nav.url !== HOME_URL && !nav.url.startsWith('about:')) {
     api.addHistoryEntry(nav.url, nav.url).catch(() => {});
   }
 
@@ -193,7 +349,7 @@ export async function navigate(rawInput) {
 /** Open one of the internal pages (history, downloads, settings, bookmarks). */
 export async function openInternalPage(page) {
   const route = String(page ?? '').split(':')[0];
-  const known = ['home', 'history', 'downloads', 'bookmarks', 'settings'];
+  const known = ['home', 'history', 'downloads', 'bookmarks', 'settings', 'recently-closed', 'reading-list', 'task-manager', 'unsafe'];
   if (!known.includes(route)) return null;
   if (route === 'settings') {
     const category = String(page).split(':')[1];
@@ -204,7 +360,18 @@ export async function openInternalPage(page) {
 
 export async function goHome() {
   if (!store.activeTabId) return;
-  await api.navigateTab(store.activeTabId, HOME_URL);
+  const tab = store.activeTab();
+  if (tab) store.audioStates.set(tab.id, { playing: false, muted: store.mutedTabs.has(tab.id) });
+  if (tab) store.readerModeTabs.delete(tab.id);
+  if (tab) store.translatedTabs.delete(tab.id);
+  if (tab?.is_private) {
+    await api.navigatePrivateTab(tab.id, HOME_URL);
+    tab.url = HOME_URL;
+    tab.title = 'New Private Tab';
+    tab.favicon_url = null;
+  } else {
+    await api.navigateTab(store.activeTabId, HOME_URL);
+  }
   await refreshTabs();
   applyViewForTab(store.activeTab());
   await syncNativeViews();
@@ -258,6 +425,10 @@ export async function renameWorkspace(workspaceId, name) {
 
 export async function deleteWorkspace(workspaceId) {
   const result = await api.deleteWorkspace(workspaceId);
+  const privateTabs = store.privateTabs.filter((tab) => tab.workspace_id === workspaceId);
+  await Promise.all(privateTabs.map((tab) => api.closePrivateTab(tab.id)));
+  store.privateTabs = store.privateTabs.filter((tab) => tab.workspace_id !== workspaceId);
+  store.closedTabs = store.closedTabs.filter((tab) => tab.workspace_id !== workspaceId);
   store.workspaces = await api.listWorkspaces();
   store.settings.active_workspace_id = result.active_workspace_id;
   await switchWorkspace(result.active_workspace_id);
@@ -311,7 +482,9 @@ export function webRegion() {
   const findRect = findBar && !findBar.classList.contains('hidden')
     ? findBar.getBoundingClientRect()
     : null;
-  const x = sidebarRect && sidebarRect.width > 0 ? sidebarRect.right : 0;
+  const x = sidebar && window.innerWidth > 700 && !sidebar.classList.contains('collapsed')
+    ? sidebarRect?.right ?? 0
+    : 0;
   const y = (findRect?.bottom ?? toolbarRect?.bottom ?? 80) + 2; // + loading bar
   const width = Math.max(1, window.innerWidth - x);
   const height = Math.max(1, window.innerHeight - y);
@@ -320,8 +493,8 @@ export function webRegion() {
 
 export async function syncNativeViews(visibleOverride = null) {
   const tab = store.activeTab();
-  const visible = visibleOverride ?? (store.view === 'web' && !!tab && !store.isHomeTab(tab));
   const { x, y, width, height } = webRegion();
+  const visible = visibleOverride ?? (store.view === 'web' && !!tab && !store.isHomeTab(tab));
   try {
     await api.syncTabWindows({
       activeTabId: store.activeTabId,

@@ -4,7 +4,8 @@
 
 **Status: Milestone 1 — browser shell.** A real Tauri 2 + Rust desktop app with a
 plain HTML/CSS/vanilla-JS UI (no frontend build step, no CDN at runtime). Local-first:
-SQLite on your disk, zero telemetry, no accounts.
+SQLite on your disk, zero telemetry, no accounts. Page text is sent to a
+translation server only when you explicitly translate a page.
 
 ## What works (and what doesn't)
 
@@ -17,7 +18,7 @@ SQLite on your disk, zero telemetry, no accounts.
 | History (record / search / delete / clear) | ✅ Working |
 | Scratchpad notes (local) | ✅ Working |
 | Downloads: engine interception, list, per-item delete, clear all | ✅ Working |
-| Settings: search engine, HTTPS-first, theme (light/dark), restore-session flag | ✅ Working |
+| Settings: search engine, HTTPS-first, theme, website dark mode, translation endpoint | ✅ Working |
 | Privacy: clear history / downloads / site permissions, permission decisions | ✅ Working |
 | Command palette (Ctrl+K), keyboard shortcuts (also while a page has focus) | ✅ Working |
 | **Real page browsing** | ✅ Embedded webviews (one per tab, single window) |
@@ -25,12 +26,32 @@ SQLite on your disk, zero telemetry, no accounts.
 | **Internal pages** `govind://history`, `/downloads`, `/bookmarks`, `/settings` | ✅ Working (full-screen, chrome:// style) |
 | Page titles from the live page, live omnibar URL, zoom, print | ✅ Working |
 | Find in page (Ctrl+F), fullscreen (F11), per-domain zoom memory | ✅ Working |
-| Real favicons from the page, tab context menu (duplicate, close others / right) | ✅ Working |
-| Bookmarks import / export (Netscape HTML, works with Chrome/Firefox/Edge) | ✅ Working |
+| Reading list with offline text snapshots (`govind://reading-list`) | ✅ Working |
+| Tab search / quick switcher (Ctrl+Shift+A) | ✅ Working |
+| New-tab shortcut tiles (bookmark favorites) and custom search URL template | ✅ Working |
+| Picture-in-Picture, per-tab audio mute + speaker indicators | ✅ Working |
+| Forced dark mode for websites, built-in page translation | ✅ Working |
+| Read Aloud with current-word highlighting (Alt+Shift+R) | ✅ Working |
+| Spell check in web forms, print / save-as-PDF (Ctrl+P) | ✅ Working |
+| Form autofill profiles (names, addresses, cards — Settings → Autofill) | ✅ Working |
+| Secure password generation on focused password fields | ✅ Working |
+| Guest mode (all-new-tabs-private session), task manager page | ✅ Working |
+| Safe-browsing blocklist warnings, Do Not Track signal, cosmetic content filters | ✅ Working |
+| Clear cookies & site data per site | ✅ Working |
+| Picture-in-Picture (video hover control / Alt+Shift+P) | ✅ Working |
+| Tab audio indicators and mute (Alt+Shift+M) | ✅ Working |
+| Forced dark websites (Alt+Shift+D) | ✅ Working |
+| Page translation through a configured LibreTranslate endpoint (Alt+Shift+T) | ✅ Working |
+| Real favicons from the page, tab context menu (duplicate, pin, mute, close others / right / except pinned) | ✅ Working |
+| Bookmarks import / export (Netscape HTML, works with Chrome/Firefox/Edge) | ✅ Working (native OS file dialog, Rust-side parsing) |
 | Page DevTools (Inspect page), auto-play blocking | ✅ Working |
 | PDF viewing | ✅ Handled natively by the system WebView |
+| Reader mode, persistent named/collapsible tab groups | ✅ Working |
+| Recently closed tabs / undo close (Ctrl+Shift+T) | ✅ Working for this app session |
+| Private tabs (Ctrl+Shift+N) | ✅ Incognito webviews; not saved in history or the tab database |
 | Protocol Lab | ⏭️ Skipped per product decision (was in milestone 1 scope) |
-| Reader mode, split view, finds-in-page match counts, tab sleeping | ❌ Not in this milestone |
+| Split view, finds-in-page match counts, tab sleeping, download resume | ❌ Not in this milestone |
+| Media casting, Web Share integration, site push notifications, device emulation | ❌ Not supported by the current WebView2 integration |
 | Per-tab identity/cookie isolation, CDP access, extension support | ❌ Needs a Chromium engine (PRD §31) |
 
 ### The honest part: web content today
@@ -47,15 +68,35 @@ Known limitations (each tracked in `docs/ENGINE_SPIKE.md`):
    shell depends on the `unstable` Cargo feature.
 2. Creating a WebView2 controller must not happen on the UI thread on Windows,
    so `navigate_tab` is an `async` command (Tauri's async runtime).
-3. A page takes the keyboard focus when clicked, so browser shortcuts are
-   registered as global shortcuts **while the Govind window is focused** and
-   released when it loses focus — they never shadow the same keys elsewhere.
+3. A page takes the keyboard focus when clicked, so most browser shortcuts are
+   registered globally only while the Govind window is focused. PiP uses a
+   page-side shortcut so its request retains the video's user gesture.
 4. No certificate inspection: "secure connection" in the UI reflects the URL
    scheme only. It is labeled as such in the app.
-5. All tabs share one WebView2 profile, so per-tab identity/cookie isolation is
-   not available yet.
+5. Regular tabs share one WebView2 profile, so per-tab identity/cookie isolation
+   is not available yet. Private tabs use WebView2 InPrivate storage and are
+   excluded from session restore and the app's history/download records.
 6. No CDP access, request interception or response mocking — those need the
    Chromium engine discussed in PRD §31.
+7. Reader mode extracts text from common article/main elements; it is a
+   lightweight reader view, not a full readability parser. Recently closed
+   entries are held in memory for the current app session only.
+8. Forced dark mode uses a CSS filter on pages that appear light; some sites
+   may render oddly. Tab mute state lasts for the current app session and
+   covers page media and Web Audio contexts, but may not control cross-origin
+   frames.
+9. Translation requires a configured LibreTranslate-compatible server. The
+   app sends extracted text only after you start translation; remote endpoints
+   require HTTPS and receive the page text. Translation is shown in a simple
+   text layout, not the original page layout; authenticated endpoints/API keys
+   are not supported.
+10. Picture-in-Picture uses the page's video API, so start it with the PiP
+    button shown over a video or `Alt+Shift+P` while the page has focus.
+11. Read Aloud uses WebView2's installed speech voices and highlights words
+    where the engine supports the CSS Custom Highlight API. The password
+    generator creates a 24-character password locally on explicit click and
+    fills only the focused password field; Govind does not save generated
+    passwords.
 
 `webview.rs` remains the single engine seam: everything else talks to typed
 IPC commands.
@@ -73,7 +114,8 @@ govind-browser/
 │   └── assets/             #   self-hosted fonts, icon, welcome kit
 ├── src-tauri/              # Rust backend
 │   ├── src/webview.rs      #   tab webview manager — the engine seam (ADR-007)
-│   ├── src/commands/       #   typed IPC commands (tabs, workspaces, data, settings)
+│   ├── src/commands/       #   typed IPC commands (tabs, workspaces, data, settings,
+│   │                       #   bookmarks_io — bookmark import/export)
 │   ├── src/db.rs           #   SQLite (rusqlite bundled) + first-run seed
 │   ├── migrations/         #   0001_init.sql (WAL, foreign keys, indexes)
 │   └── capabilities/       #   least-privilege: window controls + shell open only
@@ -95,6 +137,16 @@ network):
 | `govind://settings` | Settings: general, appearance, privacy, permissions, about |
 
 Type one into the address bar or use the sidebar / the ⋮ menu.
+
+## Project documentation
+
+- [Feature list and current limitations](feature-list.md)
+- [Build and development setup](working.md)
+- [Engineering process](process.md)
+- [Development workflow](workflow.md)
+- [Known problems and current solutions](problems-solutions.md)
+- [Backend architecture and privacy boundaries](backend.md)
+- [Product requirements](docs/PRD_v2.md)
 
 ## Run the UI preview (no Rust needed)
 
@@ -152,6 +204,7 @@ cargo check
 |---|---|
 | Ctrl/Cmd + T | New tab |
 | Ctrl/Cmd + W | Close tab |
+| Ctrl/Cmd + B | Toggle sidebar |
 | Ctrl/Cmd + K | Command palette |
 | Ctrl/Cmd + L | Focus address bar |
 | Ctrl/Cmd + R | Reload |

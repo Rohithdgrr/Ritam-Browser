@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; frame-src https: http:; connect-src 'self' ipc: http://ipc.localhost; font-src 'self';"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; frame-src https: http:; connect-src 'self' ipc: http://ipc.localhost https: http:; font-src 'self';"/>
 <title>Govind Browser</title>
 <link rel="icon" type="image/svg+xml" href="assets/icon.svg"/>
 <link rel="stylesheet" href="styles/tokens.css"/>
@@ -16,7 +16,11 @@
   <div class="titlebar-brand" data-tauri-drag-region>
     <span class="logo-dot" aria-hidden="true">G</span>
     <span class="titlebar-title" data-tauri-drag-region>Govind Browser</span>
-    <span class="titlebar-sub" data-tauri-drag-region>— Staatliches Bauhaus</span>
+    <span class="titlebar-sub" data-tauri-drag-region>— Local-first, private by design</span>
+    <span class="titlebar-private hidden" id="titlebar-private" title="Private browsing is on for this tab">
+      <svg class="icon sm" viewBox="0 0 24 24"><path d="M3.5 10.5c.6-3.1 3.7-5 8.5-5s7.9 1.9 8.5 5h-17Z"/><path d="M2.5 11.5h19M4 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM13 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM11 14h2"/></svg>
+      Private
+    </span>
   </div>
   <div class="window-controls">
     <button id="win-minimize" title="Minimize" aria-label="Minimize window">
@@ -39,6 +43,10 @@
       <button class="new-tab-btn" id="btn-new-tab">
         <svg class="icon sm" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
         New Tab <kbd>Ctrl T</kbd>
+      </button>
+      <button class="new-private-btn" id="btn-new-private-tab">
+        <span class="private-icon-badge" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 10.5c.6-3.1 3.7-5 8.5-5s7.9 1.9 8.5 5h-17Z"/><path d="M2.5 11.5h19M4 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM13 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM11 14h2"/></svg></span>
+        New Private Tab <kbd>Ctrl ⇧ N</kbd>
       </button>
       <button class="palette-trigger" id="btn-palette" aria-label="Open command palette">
         <svg class="icon sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
@@ -98,12 +106,16 @@
       </button>
     </div>
   </aside>
+  <button class="sidebar-backdrop hidden" id="sidebar-backdrop" type="button" aria-label="Close sidebar"></button>
 
   <!-- ════════ Main column ════════ -->
   <main class="main">
 
     <!-- Toolbar -->
     <div class="toolbar">
+      <button class="nav-btn sidebar-toggle" id="btn-sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="true">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+      </button>
       <button class="nav-btn" id="btn-back" title="Back (Alt+←)" aria-label="Go back">
         <svg class="icon" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
@@ -116,16 +128,41 @@
       <button class="nav-btn" id="btn-home" title="Home" aria-label="Go home">
         <svg class="icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5M5 9.5V21h5v-6h4v6h5V9.5"/></svg>
       </button>
+      <button class="nav-btn" id="btn-reader-mode" title="Reader mode" aria-label="Toggle reader mode" aria-pressed="false">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5zM4 5.5v16M8 7h8M8 11h8M8 15h5"/></svg>
+      </button>
+      <button class="nav-btn" id="btn-read-aloud" title="Read aloud (Alt+Shift+R)" aria-label="Read aloud">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+      </button>
 
-      <div class="omnibar">
-        <button class="lock-btn" id="security-btn" title="Site information" aria-label="Site information">
-          <svg class="icon sm" id="lock-icon" viewBox="0 0 24 24"><rect width="16" height="11" x="4" y="11" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-        </button>
-        <input id="omnibar-input" type="text" spellcheck="false" autocomplete="off" placeholder="Search or enter address" aria-label="Address and search bar"/>
-        <button class="bookmark-toggle" id="bookmark-toggle" title="Bookmark this page" aria-label="Bookmark this page" aria-pressed="false">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M19 21l-7-4.5L5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-        </button>
+      <div class="omnibar-container" id="omnibar-container">
+        <div class="omnibar">
+          <button class="lock-btn" id="security-btn" title="Site information" aria-label="Site information">
+            <svg class="icon sm" id="lock-icon" viewBox="0 0 24 24"><rect width="16" height="11" x="4" y="11" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          </button>
+          <select id="omnibar-search-engine" class="omnibar-engine-select hidden" aria-label="Search engine for address bar" title="Choose search engine"></select>
+          <input id="omnibar-input" type="text" spellcheck="false" autocomplete="off" placeholder="Search or enter address" aria-label="Address and search bar"/>
+          <button class="omnibar-action-btn hidden" id="omnibar-clear" title="Clear address bar" aria-label="Clear address bar">
+            <svg class="icon sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+          <button class="omnibar-action-btn" id="omnibar-copy" title="Copy URL" aria-label="Copy URL">
+            <svg class="icon sm" viewBox="0 0 24 24"><rect width="13" height="13" x="9" y="9" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+          <button class="bookmark-toggle" id="bookmark-toggle" title="Bookmark this page" aria-label="Bookmark this page" aria-pressed="false">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M19 21l-7-4.5L5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          </button>
+        </div>
+        <div class="omnibar-dropdown hidden" id="omnibar-dropdown" role="listbox" aria-label="Address bar suggestions"></div>
       </div>
+
+      <span class="private-chip hidden" id="private-chip" title="Private browsing — history, cookies and downloads are not recorded">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M3.5 10.5c.6-3.1 3.7-5 8.5-5s7.9 1.9 8.5 5h-17Z"/><path d="M2.5 11.5h19M4 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM13 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM11 14h2"/></svg>
+        Private
+      </span>
+
+      <button class="nav-btn" id="btn-theme-toggle" title="Toggle dark/light theme" aria-label="Toggle theme">
+        <svg class="icon" id="theme-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      </button>
 
       <button class="nav-btn" id="btn-more" title="More options" aria-label="More options" aria-haspopup="true">
         <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/></svg>
@@ -151,16 +188,39 @@
     <!-- ── Home view ── -->
     <section class="view view-home" id="view-home" aria-label="Start page">
       <div class="home-inner">
-        <div class="home-eyebrow">Govind Browser</div>
+        <div class="home-eyebrow">        <span class="private-icon-badge home-private-icon hidden" id="private-home-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 10.5c.6-3.1 3.7-5 8.5-5s7.9 1.9 8.5 5h-17Z"/><path d="M2.5 11.5h19M4 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM13 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM11 14h2"/></svg></span>
+        <span id="home-eyebrow-label">Govind Browser</span></div>
         <h1 class="home-greeting" id="home-greeting">Good morning.</h1>
         <p class="home-sub">A fast, calm place for the web — your data stays on this machine.</p>
 
         <form class="home-search" id="home-search-form" role="search">
           <svg class="icon" viewBox="0 0 24 24" style="color:var(--zen-subtle)"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
           <input id="home-search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Search the web or type a URL…" aria-label="Search the web"/>
+          <button type="button" class="home-search-clear hidden" id="home-search-clear" title="Clear search" aria-label="Clear"><svg class="icon sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
           <kbd>↵</kbd>
           <button type="submit">Search</button>
         </form>
+
+        <div class="home-quick-chips">
+          <button class="quick-chip" data-quick-action="bookmarks">
+            <svg class="icon sm" viewBox="0 0 24 24"><path d="M19 21l-7-4.5L5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg> Bookmarks
+          </button>
+          <button class="quick-chip" data-quick-action="reading-list">
+            <svg class="icon sm" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5zM4 5.5v16M8 7h8M8 11h8M8 15h5"/></svg> Reading List
+          </button>
+          <button class="quick-chip" data-quick-action="history">
+            <svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> History
+          </button>
+          <button class="quick-chip" data-quick-action="downloads">
+            <svg class="icon sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> Downloads
+          </button>
+          <button class="quick-chip" data-quick-action="scratchpad">
+            <svg class="icon sm" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></svg> Scratchpad
+          </button>
+          <button class="quick-chip" data-quick-action="settings">
+            <svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M19.8 4.2l-2.1 2.1M6.3 17.7l-2.1 2.1"/></svg> Settings
+          </button>
+        </div>
 
         <div class="home-section">
           <h2><span>Favorites</span><button id="btn-manage-favorites" class="linklike" type="button">Manage →</button></h2>
@@ -206,9 +266,14 @@
     <div class="menu hidden" id="tab-menu" role="menu" style="left:0; top:0;">
       <button class="menu-item" data-tab-action="reload" role="menuitem">Reload</button>
       <button class="menu-item" data-tab-action="duplicate" role="menuitem">Duplicate tab</button>
+      <button class="menu-item" data-tab-action="open-private" role="menuitem">Open in New Private Tab</button>
       <button class="menu-item" data-tab-action="pin" role="menuitem">Pin / Unpin</button>
+      <button class="menu-item" id="tab-menu-mute" data-tab-action="mute" role="menuitem">Mute / unmute tab <kbd>Alt Shift M</kbd></button>
+      <button class="menu-item" data-tab-action="group" role="menuitem">Add to tab group…</button>
+      <button class="menu-item" data-tab-action="ungroup" role="menuitem">Remove from tab group</button>
       <div class="menu-sep"></div>
       <button class="menu-item" data-tab-action="close" role="menuitem">Close tab <kbd>Ctrl W</kbd></button>
+      <button class="menu-item" data-tab-action="close-unpinned" role="menuitem">Close all tabs except pinned</button>
       <button class="menu-item" data-tab-action="close-others" role="menuitem">Close other tabs</button>
       <button class="menu-item" data-tab-action="close-right" role="menuitem">Close tabs to the right</button>
       <div class="menu-sep"></div>
@@ -221,6 +286,14 @@
         <svg class="icon sm" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5M5 9.5V21h5v-6h4v6h5V9.5"/></svg>
         New Tab <kbd>Ctrl T</kbd>
       </button>
+      <button class="menu-item" id="menu-new-private-tab" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M3.5 10.5c.6-3.1 3.7-5 8.5-5s7.9 1.9 8.5 5h-17Z"/><path d="M2.5 11.5h19M4 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM13 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM11 14h2"/></svg>
+        New Private Tab <kbd>Ctrl Shift N</kbd>
+      </button>
+      <button class="menu-item" id="menu-recently-closed" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8M3 3v5h5M12 7v5l3 2"/></svg>
+        Recently closed <kbd>Ctrl Shift T</kbd>
+      </button>
       <button class="menu-item" id="menu-history" role="menuitem">
         <svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         History
@@ -232,6 +305,43 @@
       <button class="menu-item" id="menu-bookmarks" role="menuitem">
         <svg class="icon sm" viewBox="0 0 24 24"><path d="M19 21l-7-4.5L5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         Bookmarks and lists
+      </button>
+      <button class="menu-item" id="menu-reading-list" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5zM4 5.5v16M8 7h8M8 11h8M8 15h5"/></svg>
+        Reading list
+      </button>
+      <button class="menu-item" id="menu-save-for-later" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M19 21l-7-4.5L5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M12 8v5M9.5 10.5h5"/></svg>
+        Save page for later
+      </button>
+      <button class="menu-item" id="menu-task-manager" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+        Task manager
+      </button>
+      <button class="menu-item" id="menu-guest-mode" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M12 3a5 5 0 0 0-5 5v2H5v11h14V10h-2V8a5 5 0 0 0-5-5Zm-3 7V8a3 3 0 1 1 6 0v2"/></svg>
+        Toggle guest mode
+      </button>
+      <div class="menu-sep"></div>
+      <button class="menu-item" id="menu-mute-active-tab" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15 9a5 5 0 0 1 0 6"/></svg>
+        Mute / unmute active tab <kbd>Alt Shift M</kbd>
+      </button>
+      <button class="menu-item" id="menu-force-dark-websites" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M20 15.5A8 8 0 0 1 8.5 4 8 8 0 1 0 20 15.5z"/></svg>
+        Toggle forced dark websites <kbd>Alt Shift D</kbd>
+      </button>
+      <button class="menu-item" id="menu-translate-page" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M4 5h12M10 3v2m4 0c-.5 4-3 7-7 9m1-5c1.5 2 3.5 3.5 6 4.5M14 20l3.5-9 3.5 9m-5.8-3h4.6"/></svg>
+        Translate / show original <kbd>Alt Shift T</kbd>
+      </button>
+      <button class="menu-item" id="menu-read-aloud" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+        Read aloud / stop <kbd>Alt Shift R</kbd>
+      </button>
+      <button class="menu-item" id="menu-fullscreen" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3"/></svg>
+        Toggle fullscreen <kbd>F11</kbd>
       </button>
       <div class="menu-sep"></div>
       <button class="menu-item" id="menu-zoom-in" role="menuitem">
@@ -249,7 +359,11 @@
       <div class="menu-sep"></div>
       <button class="menu-item" id="menu-print" role="menuitem">
         <svg class="icon sm" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
-        Print… <kbd>Ctrl P</kbd>
+        Print / Save as PDF… <kbd>Ctrl P</kbd>
+      </button>
+      <button class="menu-item" id="menu-clear-site-data" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Clear cookies &amp; site data for this page
       </button>
       <button class="menu-item" id="menu-clear-data" role="menuitem">
         <svg class="icon sm" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
@@ -270,6 +384,7 @@
     <div class="popover hidden" id="security-popover" role="dialog" aria-label="Site information">
       <h3><svg class="icon sm" viewBox="0 0 24 24" style="color:var(--zen-sage)"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> <span id="security-title">Connection</span></h3>
       <p id="security-body"></p>
+      <button class="btn-secondary" id="security-clear-data" type="button" style="margin-top:10px;">Clear cookies &amp; site data for this site</button>
       <p style="margin-top:10px; font-size:10px; color:var(--zen-subtle);">Security state is derived from the URL scheme only — Govind does not yet inspect the actual certificate presented by the server.</p>
     </div>
 

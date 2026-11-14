@@ -8,7 +8,17 @@ pub const HOME_URL: &str = "govind://home";
 
 /// Internal pages rendered by the shell itself (never loaded into a webview).
 /// Mirrors the chrome:// URLs users expect: history, downloads, bookmarks, settings.
-pub const INTERNAL_ROUTES: &[&str] = &["home", "history", "downloads", "bookmarks", "settings"];
+pub const INTERNAL_ROUTES: &[&str] = &[
+    "home",
+    "history",
+    "downloads",
+    "bookmarks",
+    "settings",
+    "recently-closed",
+    "reading-list",
+    "task-manager",
+    "unsafe",
+];
 
 /// Canonical internal URL for a route, e.g. `govind://history`.
 pub fn internal_url(route: &str) -> String {

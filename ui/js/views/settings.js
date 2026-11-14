@@ -13,7 +13,9 @@ import { store } from '../state/store.js';
 
 const CATEGORIES = [
   { id: 'general', label: 'General', hint: 'Startup, search engine, HTTPS' },
-  { id: 'appearance', label: 'Appearance', hint: 'Theme and layout' },
+  { id: 'appearance', label: 'Appearance', hint: 'Theme and web pages' },
+  { id: 'autofill', label: 'Autofill', hint: 'Saved names, addresses, cards' },
+  { id: 'translation', label: 'Translation', hint: 'LibreTranslate endpoint' },
   { id: 'privacy', label: 'Privacy & data', hint: 'Clear browsing data, telemetry' },
   { id: 'permissions', label: 'Permissions', hint: 'Per-site decisions' },
   { id: 'about', label: 'About', hint: 'Version and engine' },
@@ -123,6 +125,48 @@ async function renderCategory(category) {
             <option value="zen-dark" ${s.theme === 'zen-dark' ? 'selected' : ''}>Zen Dark</option>
           </select>
         </div>
+        <div class="setting-row">
+          <div><div class="s-title">Force dark mode on websites</div>
+            <div class="s-desc">Applies a dark rendering to light pages. Some sites may look unusual.</div></div>
+          <label class="switch"><input type="checkbox" id="setting-force-dark-websites" ${s.force_dark_websites === 'true' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+        </div>
+      </section>`;
+    return;
+  }
+
+  if (category === 'autofill') {
+    host.innerHTML = `
+      <section class="settings-card">
+        <h4>Saved profiles</h4>
+        <p class="s-desc">Govind fills recognizable form fields (name, email, phone, address, card) from these profiles. Stored only in the local database — never synced anywhere.</p>
+        <div id="autofill-list"></div>
+        <div id="autofill-form" class="hidden">
+          <div class="setting-row"><div><div class="s-title">Label</div></div>
+            <input id="af-label" type="text" spellcheck="false" placeholder="e.g. Work, Personal" maxlength="60"/></div>
+          ${[['full_name','Full name'],['email','Email'],['phone','Phone'],['address_line1','Address line 1'],['address_line2','Address line 2'],['city','City'],['region','State / region'],['postal_code','Postal code'],['country','Country'],['card_name','Name on card'],['card_number','Card number'],['card_expiry','Card expiry (MM/YY)'],['card_csc','Security code']]
+            .map(([k,l]) => `<div class="setting-row"><div><div class="s-title">${l}</div></div>
+              <input id="af-${k}" type="text" spellcheck="false" autocomplete="off"/></div>`).join('')}
+          <div class="setting-row">
+            <button class="btn-primary" id="af-save" type="button">Save profile</button>
+            <button class="btn-secondary" id="af-cancel" type="button">Cancel</button>
+          </div>
+        </div>
+        <div class="setting-row" id="af-add-row">
+          <button class="btn-secondary" id="af-add" type="button">Add profile…</button>
+        </div>
+      </section>`;
+    await renderAutofillList(host);
+    return;
+  }
+
+  if (category === 'translation') {
+    host.innerHTML = `
+      <section class="settings-card">
+        <div class="setting-row">
+          <div><div class="s-title">LibreTranslate server</div>
+            <div class="s-desc">Page text is sent only when you choose Translate. Use a self-hosted server for local-only translation. HTTPS is required for remote servers.</div></div>
+          <input id="setting-translation-endpoint" type="url" spellcheck="false" placeholder="http://localhost:5000" value="${escapeHtml(s.translation_endpoint ?? '')}" aria-label="LibreTranslate server URL"/>
+        </div>
       </section>`;
     return;
   }
@@ -134,6 +178,37 @@ async function renderCategory(category) {
           <div><div class="s-title">Telemetry &amp; crash reporting</div>
             <div class="s-desc">Disabled. Govind sends no analytics anywhere. There is nothing to turn on yet.</div></div>
           <span class="chip selected" aria-disabled="true">Off, always</span>
+        </div>
+      </section>
+      <section class="settings-card">
+        <div class="setting-row">
+          <div><div class="s-title">Spell check in web forms</div>
+            <div class="s-desc">Underline misspelled words in text fields and offers corrections on right-click.</div></div>
+          <label class="switch"><input type="checkbox" id="setting-spellcheck" ${s.spellcheck !== 'false' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Do Not Track</div>
+            <div class="s-desc">Ask sites not to track you. Govind marks pages so scripts see the signal; note the engine cannot add the DNT HTTP header itself.</div></div>
+          <label class="switch"><input type="checkbox" id="setting-do-not-track" ${s.do_not_track === 'true' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Safe browsing</div>
+            <div class="s-desc">Warn before opening sites on Govind's blocklist. The built-in list is minimal — add your own domains below (one per line).</div></div>
+          <label class="switch"><input type="checkbox" id="setting-safe-browsing" ${s.safe_browsing !== 'false' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Blocked sites</div>
+            <div class="s-desc">Hostnames or *.suffix entries, one per line.</div></div>
+          <textarea id="setting-blocklist" rows="4" spellcheck="false" placeholder="example.com&#10;*.bad.example.org">${escapeHtml(s.safebrowsing_blocklist ?? '')}</textarea>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Block page elements (cosmetic filters)</div>
+            <div class="s-desc">Hide matching elements on every page — CSS selectors, one per line. This hides content; it does not block network requests.</div></div>
+          <label class="switch"><input type="checkbox" id="setting-content-blocking" ${s.content_blocking === 'true' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Filter selectors</div></div>
+          <textarea id="setting-cosmetic-filters" rows="4" spellcheck="false" placeholder=".ad-banner&#10;[id^=&quot;ad-&quot;]">${escapeHtml(s.cosmetic_filters ?? '')}</textarea>
         </div>
       </section>
       <section class="settings-card danger-zone">
@@ -174,6 +249,53 @@ async function renderCategory(category) {
         </tbody>
       </table>
     </section>`;
+}
+
+const AF_FIELDS = ['full_name','email','phone','address_line1','address_line2','city','region','postal_code','country','card_name','card_number','card_expiry','card_csc'];
+const AF_LABELS = { full_name:'Full name', email:'Email', phone:'Phone', address_line1:'Address line 1', address_line2:'Address line 2', city:'City', region:'State / region', postal_code:'Postal code', country:'Country', card_name:'Name on card', card_number:'Card number', card_expiry:'Card expiry', card_csc:'Security code' };
+
+function readAutofillProfiles() {
+  try {
+    const parsed = JSON.parse(store.settings.autofill_profiles ?? '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+async function saveAutofillProfiles(profiles) {
+  const json = JSON.stringify(profiles.slice(0, 50));
+  store.settings.autofill_profiles = json;
+  await api.setSetting('autofill_profiles', json);
+  if (api.isNative()) await api.setAutofillProfiles(json).catch(() => {});
+}
+
+async function renderAutofillList(host) {
+  const list = host.querySelector('#autofill-list');
+  const profiles = readAutofillProfiles();
+  if (!list) return;
+  list.innerHTML = profiles.length === 0
+    ? '<p class="s-desc">No saved profiles yet.</p>'
+    : profiles.map((p, i) => `
+      <div class="perm-row">
+        <span class="perm-origin">${escapeHtml(p.label || p.full_name || p.email || `Profile ${i + 1}`)}</span>
+        <span class="perm-label">${escapeHtml([p.email, p.phone].filter(Boolean).join(' · ') || '—')}</span>
+        <button class="btn-secondary" data-af-edit="${i}" type="button">Edit</button>
+        <button class="btn-secondary" data-af-del="${i}" type="button">Delete</button>
+      </div>`).join('');
+  list.querySelectorAll('[data-af-del]').forEach((btn) => btn.addEventListener('click', async () => {
+    const next = readAutofillProfiles().filter((_, i) => i !== Number(btn.dataset.afDel));
+    await saveAutofillProfiles(next);
+    await renderCategory('autofill');
+    toast('Profile deleted.');
+  }));
+  list.querySelectorAll('[data-af-edit]').forEach((btn) => btn.addEventListener('click', () => {
+    const p = readAutofillProfiles()[Number(btn.dataset.afEdit)];
+    if (!p) return;
+    host.querySelector('#autofill-form')?.classList.remove('hidden');
+    host.querySelector('#af-label').value = p.label ?? '';
+    AF_FIELDS.forEach((f) => { const el = host.querySelector(`#af-${f}`); if (el) el.value = p[f] ?? ''; });
+    host.querySelector('#af-save').dataset.editIndex = btn.dataset.afEdit;
+    host.querySelector('#af-add-row')?.classList.add('hidden');
+  }));
 }
 
 async function renderPermissions(host) {
@@ -239,6 +361,100 @@ function wireSettingsPage(container) {
     store.settings.theme = e.target.value;
     applyTheme(e.target.value);
     await api.setSetting('theme', e.target.value);
+  });
+
+  on('#setting-force-dark-websites', 'change', async (e) => {
+    const enabled = e.target.checked;
+    store.settings.force_dark_websites = enabled ? 'true' : 'false';
+    await api.setSetting('force_dark_websites', store.settings.force_dark_websites);
+    if (api.isNative()) await api.setForceDarkWebsites(enabled);
+    else toast('Forced website dark mode is available in the installed app.');
+  });
+
+  on('#af-add', 'click', () => {
+    const form = container.querySelector('#autofill-form');
+    if (!form) return;
+    form.classList.remove('hidden');
+    form.querySelectorAll('input').forEach((i) => { i.value = ''; });
+    form.querySelector('#af-save').dataset.editIndex = '';
+    container.querySelector('#af-add-row')?.classList.add('hidden');
+  });
+  on('#af-cancel', 'click', async () => {
+    container.querySelector('#autofill-form')?.classList.add('hidden');
+    container.querySelector('#af-add-row')?.classList.remove('hidden');
+    await renderCategory('autofill');
+  });
+  on('#af-save', 'click', async (e) => {
+    const profiles = readAutofillProfiles();
+    const profile = { label: container.querySelector('#af-label')?.value.trim().slice(0, 60) || undefined };
+    AF_FIELDS.forEach((f) => {
+      const v = container.querySelector(`#af-${f}`)?.value.trim().slice(0, 200);
+      if (v) profile[f] = v;
+    });
+    if (AF_FIELDS.every((f) => !profile[f])) { toast('Fill in at least one field.'); return; }
+    const idx = e.target.dataset.editIndex;
+    if (idx !== '' && idx !== undefined) profiles[Number(idx)] = profile;
+    else profiles.push(profile);
+    await saveAutofillProfiles(profiles);
+    await renderCategory('autofill');
+    toast('Profile saved.');
+  });
+
+  on('#setting-spellcheck', 'change', async (e) => {
+    store.settings.spellcheck = e.target.checked ? 'true' : 'false';
+    await api.setSetting('spellcheck', store.settings.spellcheck);
+    if (api.isNative()) await api.setSpellcheck(e.target.checked);
+  });
+  on('#setting-do-not-track', 'change', async (e) => {
+    store.settings.do_not_track = e.target.checked ? 'true' : 'false';
+    await api.setSetting('do_not_track', store.settings.do_not_track);
+    if (api.isNative()) await api.setDoNotTrack(e.target.checked);
+    toast(e.target.checked ? 'Do Not Track signal enabled for pages.' : 'Do Not Track disabled.');
+  });
+  on('#setting-safe-browsing', 'change', async (e) => {
+    store.settings.safe_browsing = e.target.checked ? 'true' : 'false';
+    await api.setSetting('safe_browsing', store.settings.safe_browsing);
+  });
+  on('#setting-blocklist', 'change', async (e) => {
+    const value = e.target.value.trim();
+    try { await api.setSetting('safebrowsing_blocklist', value); } catch (err) { toast(err?.message ?? 'Invalid blocklist.'); return; }
+    store.settings.safebrowsing_blocklist = value;
+    toast('Blocked sites saved.');
+  });
+  on('#setting-content-blocking', 'change', async (e) => {
+    store.settings.content_blocking = e.target.checked ? 'true' : 'false';
+    await api.setSetting('content_blocking', store.settings.content_blocking);
+    if (api.isNative()) await api.setContentBlocking(e.target.checked ? (store.settings.cosmetic_filters ?? '') : '');
+  });
+  on('#setting-cosmetic-filters', 'change', async (e) => {
+    const value = e.target.value;
+    try { await api.setSetting('cosmetic_filters', value); } catch (err) { toast(err?.message ?? 'Invalid filters.'); return; }
+    store.settings.cosmetic_filters = value;
+    if (api.isNative() && store.settings.content_blocking === 'true') await api.setContentBlocking(value);
+    toast('Filter selectors saved.');
+  });
+
+  on('#setting-translation-endpoint', 'change', async (e) => {
+    const value = e.target.value.trim().replace(/\/+$/, '');
+    let valid = !value;
+    if (value) {
+      try {
+        const url = new URL(value);
+        valid = !url.username && !url.password && !url.search && !url.hash
+          && (url.protocol === 'https:'
+            || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)));
+      } catch {
+        valid = false;
+      }
+    }
+    if (!valid || value.length > 2048) {
+      toast('Use an HTTPS endpoint, or localhost over HTTP.');
+      e.target.value = store.settings.translation_endpoint ?? '';
+      return;
+    }
+    store.settings.translation_endpoint = value;
+    await api.setSetting('translation_endpoint', value);
+    toast(value ? 'Translation server saved.' : 'Translation server cleared.');
   });
 
   // Category rail

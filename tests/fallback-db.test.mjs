@@ -41,6 +41,17 @@ test('create/activate/close tab lifecycle keeps one tab open', async () => {
   assert.equal(tabs[0].url, 'govind://home');
 });
 
+test('tab groups are trimmed, bounded, and removable', async () => {
+  const db = freshDb();
+  const tab = await db.create_tab({ url: 'https://example.com' });
+  const grouped = await db.set_tab_group({ tab_id: tab.id, group_name: '  Work  ' });
+  assert.equal(grouped.group_name, 'Work');
+  const bounded = await db.set_tab_group({ tab_id: tab.id, group_name: 'x'.repeat(60) });
+  assert.equal(bounded.group_name.length, 40);
+  const removed = await db.set_tab_group({ tab_id: tab.id, group_name: ' ' });
+  assert.equal(removed.group_name, null);
+});
+
 test('navigate then bookmark then unbookmark', async () => {
   const db = freshDb();
   const tab = await db.create_tab({ url: 'govind://home' });
@@ -94,6 +105,10 @@ test('set_setting enforces the key allowlist and value types', async () => {
   await assert.rejects(() => db.set_setting({ key: 'evil_key', value: 'x' }));
   await assert.rejects(() => db.set_setting({ key: 'https_first', value: 'yes' }));
   await db.set_setting({ key: 'https_first', value: 'false' });
+  await db.set_setting({ key: 'translation_endpoint', value: 'http://localhost:5000' });
+  await db.set_setting({ key: 'translation_endpoint', value: 'https://translate.example/api' });
+  await assert.rejects(() => db.set_setting({ key: 'translation_endpoint', value: 'http://example.com' }));
+  await assert.rejects(() => db.set_setting({ key: 'translation_endpoint', value: 'https://user:pass@example.com' }));
   const s = await db.get_settings();
   assert.equal(s.https_first, 'false');
 });
@@ -136,4 +151,38 @@ test('permissions upsert by origin+permission', async () => {
   const rows = await db.list_site_permissions();
   assert.equal(rows.length, 1);
   assert.equal(rows[0].decision, 'deny');
+});
+
+test('bookmark import/export round-trips through the HTML fallback', async () => {
+  const db = freshDb();
+  const sample = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<DL><p>
+  <DT><A HREF="https://imported.example/one">One &amp; only</A>
+  <DT><A HREF="https://imported.example/two">Two</A>
+  <DT><A HREF="javascript:alert(1)">Evil</A>
+</DL><p>`;
+
+  const summary = await db.import_bookmarks_html({ html: sample });
+  assert.equal(summary.imported, 2);
+  assert.equal(summary.duplicates, 0);
+
+  // Re-importing the same file updates titles, counts as duplicates.
+  const again = await db.import_bookmarks_html({ html: sample });
+  assert.equal(again.imported, 0);
+  assert.equal(again.duplicates, 2);
+
+  const html = await db.export_bookmarks_html();
+  assert.ok(html.includes('https://imported.example/one'));
+  assert.ok(!html.includes('javascript:'));
+
+  // The exported file is itself importable (round-trip).
+  const roundTrip = await db.import_bookmarks_html({ html });
+  assert.equal(roundTrip.imported, 0);
+  assert.ok(roundTrip.duplicates >= 2);
+});
+
+test('native-only bookmark commands are unavailable in preview', async () => {
+  const db = freshDb();
+  await assert.rejects(() => db.import_bookmarks_file());
+  await assert.rejects(() => db.export_bookmarks_file());
 });

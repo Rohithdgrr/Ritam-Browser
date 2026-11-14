@@ -8,6 +8,8 @@
  * object (getItem/setItem/removeItem). Testable in node with a Map shim.
  */
 
+import { parseBookmarksHtml, buildBookmarksHtml } from '../lib/bookmarks-file.js';
+
 const STORAGE_KEY = 'govind.db.v1';
 export const HOME_URL = 'govind://home';
 const MAX_TEXT = 20000;
@@ -22,7 +24,16 @@ const KNOWN_SETTINGS = {
   restore_session: { type: 'bool' },
   https_first: { type: 'bool' },
   theme: { type: 'enum', values: ['zen-light', 'zen-dark'] },
+  force_dark_websites: { type: 'bool' },
+  translation_endpoint: { type: 'translation-endpoint' },
   active_workspace_id: { type: 'string' },
+  spellcheck: { type: 'bool' },
+  do_not_track: { type: 'bool' },
+  safe_browsing: { type: 'bool' },
+  safebrowsing_blocklist: { type: 'blocklist' },
+  content_blocking: { type: 'bool' },
+  cosmetic_filters: { type: 'filters' },
+  autofill_profiles: { type: 'profiles' },
 };
 
 const DEFAULT_SETTINGS = {
@@ -30,8 +41,29 @@ const DEFAULT_SETTINGS = {
   restore_session: 'false',
   https_first: 'true',
   theme: 'zen-light',
+  force_dark_websites: 'false',
+  translation_endpoint: '',
   active_workspace_id: '',
+  spellcheck: 'true',
+  do_not_track: 'false',
+  safe_browsing: 'true',
+  safebrowsing_blocklist: '',
+  content_blocking: 'false',
+  cosmetic_filters: '',
+  autofill_profiles: '[]',
 };
+
+function validTranslationEndpoint(value) {
+  if (!value) return true;
+  try {
+    const url = new URL(value);
+    if (url.username || url.password || url.search || url.hash) return false;
+    return url.protocol === 'https:'
+      || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname));
+  } catch {
+    return false;
+  }
+}
 
 function isSafeUrl(u) {
   if (typeof u !== 'string' || u.length > 2048) return false;
@@ -72,6 +104,7 @@ export function createFallbackDb(storage) {
       history: [],
       notes: [],
       downloads: [],
+      reading_list: [],
       settings: { ...DEFAULT_SETTINGS, active_workspace_id: wsId },
       site_permissions: [],
     };
@@ -92,7 +125,7 @@ export function createFallbackDb(storage) {
       const order = db.tabs.filter((t) => t.workspace_id === wsId).reduce((m, t) => Math.max(m, t.sort_order), -1) + 1;
       const tab = {
         id: id(), workspace_id: wsId, url: target, title: target === HOME_URL ? 'New Tab' : titleFromUrl(target),
-        favicon_url: null, is_pinned: 0, sort_order: order, created_at: now(), last_active_at: now(),
+        favicon_url: null, is_pinned: 0, group_name: null, sort_order: order, created_at: now(), last_active_at: now(),
       };
       db.tabs.push(tab);
       db.settings.active_workspace_id = wsId;
@@ -125,7 +158,7 @@ export function createFallbackDb(storage) {
         // Always keep at least one tab open (like mainstream browsers)
         active = {
           id: id(), workspace_id: closed.workspace_id, url: HOME_URL, title: 'New Tab',
-          favicon_url: null, is_pinned: 0, sort_order: 0, created_at: now(), last_active_at: now(),
+          favicon_url: null, is_pinned: 0, group_name: null, sort_order: 0, created_at: now(), last_active_at: now(),
         };
         db.tabs.push(active);
       }
@@ -150,6 +183,14 @@ export function createFallbackDb(storage) {
       const tab = findTab(db, tab_id);
       if (!tab) throw new Error('tab not found');
       tab.is_pinned = tab.is_pinned ? 0 : 1;
+      save(db);
+      return tab;
+    },
+    async set_tab_group({ tab_id, group_name } = {}) {
+      const db = load();
+      const tab = findTab(db, tab_id);
+      if (!tab) throw new Error('tab not found');
+      tab.group_name = String(group_name ?? '').trim().slice(0, 40) || null;
       save(db);
       return tab;
     },
@@ -246,6 +287,53 @@ export function createFallbackDb(storage) {
       b.is_favorite = b.is_favorite ? 0 : 1;
       save(db);
       return b;
+    },
+
+    // ── Bookmark import / export (Netscape HTML) ────────────
+    // Native dialogs do not exist in the preview, so the *_file variants are
+    // unavailable here; the UI uses the HTML variants with a browser file input.
+    async import_bookmarks_file() {
+      throw new Error('Native file dialog is only available in the installed app.');
+    },
+    async export_bookmarks_file() {
+      throw new Error('Native file dialog is only available in the installed app.');
+    },
+    async import_bookmarks_html({ html } = {}) {
+      const items = parseBookmarksHtml(html);
+      const db = load();
+      let imported = 0;
+      let duplicates = 0;
+      let skipped = 0;
+      const seen = new Set();
+      for (const { title, url } of items) {
+        if (seen.has(url)) { duplicates += 1; continue; }
+        seen.add(url);
+        const existing = db.bookmarks.find((b) => b.url === url);
+        if (existing) {
+          existing.title = String(title || existing.title).slice(0, 500);
+          duplicates += 1;
+          continue;
+        }
+        if (db.bookmarks.length >= 5000) { skipped += 1; continue; }
+        const order = db.bookmarks.reduce((m, b) => Math.max(m, b.sort_order), -1) + 1;
+        db.bookmarks.push({
+          id: id(),
+          title: String(title || titleFromUrl(url)).slice(0, 500),
+          url,
+          is_favorite: 0,
+          sort_order: order,
+          created_at: now(),
+        });
+        imported += 1;
+      }
+      save(db);
+      return { imported, skipped, duplicates };
+    },
+    async export_bookmarks_html() {
+      const bookmarks = [...load().bookmarks].sort(
+        (a, b) => b.is_favorite - a.is_favorite || a.sort_order - b.sort_order || b.created_at - a.created_at,
+      );
+      return buildBookmarksHtml(bookmarks);
     },
 
     // ── History ─────────────────────────────────────────────
@@ -359,6 +447,25 @@ export function createFallbackDb(storage) {
       if (spec.type === 'bool' && v !== 'true' && v !== 'false') throw new Error('expected "true" or "false"');
       if (spec.type === 'enum' && !spec.values.includes(v)) throw new Error(`expected one of: ${spec.values.join(', ')}`);
       if (spec.type === 'string' && v.length > 128) throw new Error('value too long');
+      if (spec.type === 'translation-endpoint' && (v.length > 2048 || !validTranslationEndpoint(v))) {
+        throw new Error('translation endpoint must use HTTPS or localhost HTTP');
+      }
+      if (spec.type === 'blocklist' && (v.length > 20000 || !v.split('\n').every((l) => {
+        const t = l.trim();
+        return !t || /^[a-zA-Z0-9.*-]+$/.test(t.replace(/^\*\./, ''));
+      }))) throw new Error('blocklist must be one hostname per line');
+      if (spec.type === 'filters' && (v.length > 50000 || !v.split('\n').every((l) => {
+        const t = l.trim();
+        return !t || (!t.includes('{') && !t.includes('}') && !t.startsWith('@') && t.length <= 500);
+      }))) throw new Error('filters must be CSS selectors, one per line');
+      if (spec.type === 'profiles') {
+        try {
+          const parsed = JSON.parse(v);
+          if (!Array.isArray(parsed) || parsed.length > 50 || v.length > 100000) throw new Error('bad');
+        } catch {
+          throw new Error('autofill profiles must be a JSON array of at most 50 entries');
+        }
+      }
       const db = load();
       db.settings[key] = v;
       save(db);
@@ -407,6 +514,47 @@ export function createFallbackDb(storage) {
       db.site_permissions = origin ? db.site_permissions.filter((p) => p.origin !== origin) : [];
       save(db);
       return before - db.site_permissions.length;
+    },
+
+    // ── Reading list ────────────────────────────────────────
+    async list_reading_items() {
+      return [...load().reading_list].sort((a, b) => b.created_at - a.created_at);
+    },
+    async save_reading_item({ url, title, snapshot_text, note } = {}) {
+      if (!isSafeUrl(url) || url.startsWith('govind://')) throw new Error('cannot save this page');
+      const db = load();
+      const existing = db.reading_list.find((r) => r.url === url);
+      if (existing) {
+        existing.title = String(title || existing.title).slice(0, 500);
+        if (snapshot_text) existing.snapshot_text = String(snapshot_text).slice(0, 100000);
+        if (note) existing.note = String(note).slice(0, 2000);
+        save(db);
+        return existing;
+      }
+      const item = {
+        id: id(), url,
+        title: String(title || titleFromUrl(url)).slice(0, 500),
+        snapshot_text: snapshot_text ? String(snapshot_text).slice(0, 100000) : null,
+        note: note ? String(note).slice(0, 2000) : null,
+        created_at: now(),
+      };
+      db.reading_list.push(item);
+      save(db);
+      return item;
+    },
+    async delete_reading_item({ item_id }) {
+      const db = load();
+      const before = db.reading_list.length;
+      db.reading_list = db.reading_list.filter((r) => r.id !== item_id);
+      save(db);
+      return before !== db.reading_list.length;
+    },
+    async clear_reading_list() {
+      const db = load();
+      const n = db.reading_list.length;
+      db.reading_list = [];
+      save(db);
+      return n;
     },
 
     // ── App info ────────────────────────────────────────────
@@ -464,6 +612,14 @@ export function createFallbackDb(storage) {
       save(db);
       return db.tabs.filter((t) => t.workspace_id === source.workspace_id);
     },
+    // Page-feature commands are engine-side; harmless no-ops in preview.
+    async set_spellcheck() { return { ok: true }; },
+    async set_do_not_track() { return { ok: true }; },
+    async set_content_blocking() { return { ok: true }; },
+    async set_autofill_profiles() { return { ok: true }; },
+    async request_page_snapshot() { throw new Error('Page snapshots need the installed app.'); },
+    async clear_site_data() { return { ok: true }; },
+    async bypass_unsafe_url() { return { ok: true }; },
   };
 
   return api;

@@ -5,7 +5,7 @@ use crate::error::AppError;
 use crate::models::{AppInfo, ClearDataResult, SitePermission};
 use rusqlite::params;
 use std::collections::HashMap;
-use tauri::State;
+use tauri::{State, Url};
 
 const KNOWN_KEYS: &[&str] = &[
     "search_engine",
@@ -14,6 +14,15 @@ const KNOWN_KEYS: &[&str] = &[
     "theme",
     "active_workspace_id",
     "custom_search_url",
+    "force_dark_websites",
+    "translation_endpoint",
+    "spellcheck",
+    "do_not_track",
+    "safe_browsing",
+    "safebrowsing_blocklist",
+    "content_blocking",
+    "cosmetic_filters",
+    "autofill_profiles",
 ];
 // Plus dynamic per-domain zoom keys: `zoom:<host>` → factor.
 const SEARCH_ENGINES: &[&str] = &["duckduckgo", "google", "bing", "startpage", "custom"];
@@ -24,7 +33,67 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("restore_session", "false"),
     ("https_first", "true"),
     ("theme", "zen-light"),
+    ("force_dark_websites", "false"),
+    ("translation_endpoint", ""),
+    ("spellcheck", "true"),
+    ("do_not_track", "false"),
+    ("safe_browsing", "true"),
+    ("safebrowsing_blocklist", ""),
+    ("content_blocking", "false"),
+    ("cosmetic_filters", ""),
+    ("autofill_profiles", "[]"),
 ];
+
+fn valid_translation_endpoint(value: &str) -> bool {
+    if value.is_empty() {
+        return true;
+    }
+    let Ok(url) = Url::parse(value) else {
+        return false;
+    };
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    match url.scheme() {
+        "https" => url.host_str().is_some(),
+        "http" => matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1")),
+        _ => false,
+    }
+}
+
+/// Each line must look like a hostname (letters, digits, dots, hyphens, optional `*.`).
+fn valid_blocklist(value: &str) -> bool {
+    value.lines().all(|line| {
+        let l = line.trim();
+        l.is_empty()
+            || l.strip_prefix("*.")
+                .unwrap_or(l)
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    })
+}
+
+/// Cosmetic filters: CSS selectors, one per line. Reject anything containing
+/// braces or `@` rules — we only inject a plain selector list.
+fn valid_cosmetic_filters(value: &str) -> bool {
+    value.lines().all(|line| {
+        let l = line.trim();
+        l.is_empty() || (!l.contains('{') && !l.contains('}') && !l.starts_with('@') && l.len() <= 500)
+    })
+}
+
+fn valid_autofill_profiles(value: &str) -> bool {
+    if value == "[]" {
+        return true;
+    }
+    serde_json::from_str::<serde_json::Value>(value)
+        .map(|v| v.is_array() && v.as_array().map(|a| a.len() <= 50).unwrap_or(false))
+        .unwrap_or(false)
+}
 
 #[tauri::command]
 pub fn get_settings(db: State<'_, DbState>) -> Result<HashMap<String, String>, AppError> {
@@ -49,13 +118,24 @@ pub fn set_setting(db: State<'_, DbState>, key: String, value: String) -> Result
     let valid = match key.as_str() {
         "search_engine" => SEARCH_ENGINES.contains(&value.as_str()),
         "theme" => THEMES.contains(&value.as_str()),
-        "restore_session" | "https_first" => value == "true" || value == "false",
+        "restore_session" | "https_first" | "force_dark_websites" | "spellcheck"
+        | "do_not_track" | "safe_browsing" | "content_blocking" => {
+            value == "true" || value == "false"
+        }
         "active_workspace_id" => value.len() <= 128 && !value.contains(char::is_whitespace),
         // A custom search URL template: http(s) only, optional "{query}" placeholder.
         "custom_search_url" => {
             let lower = value.to_ascii_lowercase();
             (lower.starts_with("https://") || lower.starts_with("http://")) && value.len() <= 500
         }
+        "translation_endpoint" => value.len() <= 2048 && valid_translation_endpoint(&value),
+        // Newline-separated host suffixes the safe-browsing check warns about.
+        "safebrowsing_blocklist" => value.len() <= 20_000 && valid_blocklist(&value),
+        // User cosmetic-filter CSS selectors, one per line (ad/tracker hiding).
+        "cosmetic_filters" => value.len() <= 50_000 && valid_cosmetic_filters(&value),
+        // JSON array of autofill profiles; shape is validated loosely here and
+        // strictly by the UI before saving.
+        "autofill_profiles" => value.len() <= 100_000 && valid_autofill_profiles(&value),
         _ if key.starts_with("zoom:") => value
             .parse::<f64>()
             .map(|f| (0.25..=3.0).contains(&f))

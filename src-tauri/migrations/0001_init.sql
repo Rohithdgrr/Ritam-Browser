@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS tabs (
   title          TEXT NOT NULL DEFAULT 'New Tab',
   favicon_url    TEXT,
   is_pinned      INTEGER NOT NULL DEFAULT 0,
+  group_name     TEXT,
   sort_order     INTEGER NOT NULL DEFAULT 0,
   created_at     INTEGER NOT NULL,
   last_active_at INTEGER NOT NULL
@@ -75,3 +76,13 @@ CREATE TABLE IF NOT EXISTS site_permissions (
   updated_at INTEGER NOT NULL,
   UNIQUE (origin, permission)
 );
+
+CREATE TABLE IF NOT EXISTS reading_list (
+  id             TEXT PRIMARY KEY,
+  url            TEXT NOT NULL UNIQUE,
+  title          TEXT NOT NULL,
+  snapshot_text  TEXT,
+  note           TEXT,
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reading_list_created ON reading_list(created_at DESC);

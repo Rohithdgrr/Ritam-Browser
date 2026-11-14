@@ -13,6 +13,7 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
     "shell:allow-open",
-    "log:default"
+    "log:default",
+    "dialog:default"
   ]
 }

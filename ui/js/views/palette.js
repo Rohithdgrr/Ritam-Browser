@@ -8,6 +8,7 @@ import { store } from '../state/store.js';
 let injectedCommands = [];
 let items = [];
 let selected = 0;
+let tabsOnly = false;
 
 export function initPalette(commands) {
   injectedCommands = commands;
@@ -26,9 +27,10 @@ export function isPaletteOpen() {
   return !$('#command-palette')?.classList.contains('hidden');
 }
 
-export async function openPalette() {
+export async function openPalette(options = {}) {
   const modal = $('#command-palette');
   if (!modal) return;
+  tabsOnly = !!options.tabsOnly;
   modal.classList.remove('hidden');
   const input = $('#palette-input');
   input.value = '';
@@ -53,10 +55,12 @@ async function render(query) {
 
   const push = (group, icon, title, hint, run) => items.push({ group, icon, title, hint, run });
 
-  // 1) Commands
-  for (const cmd of injectedCommands) {
-    if (!q || cmd.title.toLowerCase().includes(q) || (cmd.keywords ?? []).some((k) => k.includes(q))) {
-      push('Commands', ICONS.command, cmd.title, cmd.hint ?? '', cmd.run);
+  if (!tabsOnly) {
+    // 1) Commands
+    for (const cmd of injectedCommands) {
+      if (!q || cmd.title.toLowerCase().includes(q) || (cmd.keywords ?? []).some((k) => k.includes(q))) {
+        push('Commands', ICONS.command, cmd.title, cmd.hint ?? '', cmd.run);
+      }
     }
   }
 
@@ -68,13 +72,15 @@ async function render(query) {
   }
 
   // 3) Bookmarks
-  const bookmarks = store.bookmarks.filter((b) => !q || b.title.toLowerCase().includes(q) || b.url.toLowerCase().includes(q)).slice(0, 8);
-  for (const b of bookmarks) {
-    push('Bookmarks', ICONS.bookmark, b.title, displayUrl(b.url), () => document.dispatchEvent(new CustomEvent('govind:navigate', { detail: b.url })));
+  if (!tabsOnly) {
+    const bookmarks = store.bookmarks.filter((b) => !q || b.title.toLowerCase().includes(q) || b.url.toLowerCase().includes(q)).slice(0, 8);
+    for (const b of bookmarks) {
+      push('Bookmarks', ICONS.bookmark, b.title, displayUrl(b.url), () => document.dispatchEvent(new CustomEvent('govind:navigate', { detail: b.url })));
+    }
   }
 
   // 4) History
-  try {
+  if (!tabsOnly) try {
     const history = await api.searchHistory(q, q ? 8 : 5);
     for (const h of history) {
       push('History', ICONS.history, h.title, displayUrl(h.url), () => document.dispatchEvent(new CustomEvent('govind:navigate', { detail: h.url })));

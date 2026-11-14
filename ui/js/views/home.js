@@ -7,9 +7,20 @@ import { store, refreshBookmarks } from '../state/store.js';
 import { toast } from '../lib/dom.js';
 
 export async function renderHome() {
+  const isPrivate = store.activeTab()?.is_private;
+  $('#view-home')?.classList.toggle('private-mode', !!isPrivate);
   // Greeting
   const greet = $('#home-greeting');
   if (greet) greet.textContent = greeting();
+  const eyebrow = $('#home-eyebrow-label');
+  if (eyebrow) eyebrow.textContent = isPrivate ? 'Private browsing' : 'Govind Browser';
+  $('#private-home-icon')?.classList.toggle('hidden', !isPrivate);
+  const subtitle = $('.home-sub');
+  if (subtitle) {
+    subtitle.textContent = isPrivate
+      ? 'This tab uses temporary browser storage. Browsing history and downloads are not saved; downloaded files remain on your device.'
+      : 'A fast, calm place for the web — your data stays on this machine.';
+  }
 
   // Favorites grid
   const favWrap = $('#home-favorites');
@@ -31,19 +42,26 @@ export async function renderHome() {
 
   // Recent history
   const recentWrap = $('#home-recent');
+  const recentSection = recentWrap?.closest('.home-section');
+  recentSection?.classList.toggle('hidden', !!isPrivate);
+  $('#btn-view-all-history')?.classList.toggle('hidden', !!isPrivate);
   if (recentWrap) {
-    const recent = await api.searchHistory('', 6);
-    recentWrap.innerHTML = recent.length === 0
-      ? '<p class="fav-empty">Pages you visit will appear here.</p>'
-      : recent.map((h) => `
-        <button class="recent-item" data-url="${escapeHtml(h.url)}">
-          <span class="tab-favicon">${escapeHtml(monogram(h.url))}</span>
-          <span style="flex:1; min-width:0;">
-            <span class="r-title" style="display:block;">${escapeHtml(h.title)}</span>
-            <span class="r-url">${escapeHtml(displayUrl(h.url))}</span>
-          </span>
-          <time>${formatTime(h.visited_at)}</time>
-        </button>`).join('');
+    if (isPrivate) {
+      recentWrap.innerHTML = '';
+    } else {
+      const recent = await api.searchHistory('', 6);
+      recentWrap.innerHTML = recent.length === 0
+        ? '<p class="fav-empty">Pages you visit will appear here.</p>'
+        : recent.map((h) => `
+          <button class="recent-item" data-url="${escapeHtml(h.url)}">
+            <span class="tab-favicon">${escapeHtml(monogram(h.url))}</span>
+            <span style="flex:1; min-width:0;">
+              <span class="r-title" style="display:block;">${escapeHtml(h.title)}</span>
+              <span class="r-url">${escapeHtml(displayUrl(h.url))}</span>
+            </span>
+            <time>${formatTime(h.visited_at)}</time>
+          </button>`).join('');
+    }
   }
 
   // Footer stats
@@ -56,11 +74,39 @@ export async function renderHome() {
 
 /** Wire one-time event handlers for the home view. */
 export function wireHome({ onNavigate, onOpenPanel }) {
+  const searchInput = $('#home-search-input');
+  const searchClear = $('#home-search-clear');
+
+  searchInput?.addEventListener('input', () => {
+    if (searchClear) {
+      searchClear.classList.toggle('hidden', !searchInput.value || searchInput.value.trim().length === 0);
+    }
+  });
+
+  searchClear?.addEventListener('click', () => {
+    if (searchInput) {
+      searchInput.value = '';
+      searchClear.classList.add('hidden');
+      searchInput.focus();
+    }
+  });
+
   $('#home-search-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
-    const input = $('#home-search-input');
-    const value = input?.value.trim();
+    const value = searchInput?.value.trim();
     if (value) onNavigate(value);
+  });
+
+  // Quick navigation chips
+  document.querySelector('.home-quick-chips')?.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-quick-action]');
+    if (!chip) return;
+    const action = chip.getAttribute('data-quick-action');
+    if (action === 'scratchpad') {
+      onOpenPanel?.('scratchpad');
+    } else if (action) {
+      document.dispatchEvent(new CustomEvent('govind:open-internal', { detail: action }));
+    }
   });
 
   $('#home-favorites')?.addEventListener('click', async (e) => {
