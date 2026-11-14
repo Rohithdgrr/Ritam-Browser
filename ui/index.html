@@ -133,6 +133,21 @@
     </div>
     <div class="loading-bar" id="loading-bar" aria-hidden="true"></div>
 
+    <!-- ── Find in page bar (Ctrl+F) ── -->
+    <div class="find-bar hidden" id="find-bar" role="search" aria-label="Find in page">
+      <input id="find-input" type="text" autocomplete="off" spellcheck="false" placeholder="Find in page…" aria-label="Find in page"/>
+      <span class="find-hint"><kbd>↵</kbd> next · <kbd>⇧↵</kbd> previous</span>
+      <button class="icon-btn" id="find-prev" title="Previous match" aria-label="Previous match">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M18 15l-6-6-6 6"/></svg>
+      </button>
+      <button class="icon-btn" id="find-next" title="Next match" aria-label="Next match">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <button class="icon-btn" id="find-close" title="Close find bar" aria-label="Close find bar">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
     <!-- ── Home view ── -->
     <section class="view view-home" id="view-home" aria-label="Start page">
       <div class="home-inner">
@@ -186,6 +201,19 @@
 
     <!-- ── Internal pages (govind://history, /downloads, /settings, /bookmarks) ── -->
     <section class="view view-internal hidden" id="view-internal" aria-label="Internal page"></section>
+
+    <!-- ── Tab context menu (right-click a tab) ── -->
+    <div class="menu hidden" id="tab-menu" role="menu" style="left:0; top:0;">
+      <button class="menu-item" data-tab-action="reload" role="menuitem">Reload</button>
+      <button class="menu-item" data-tab-action="duplicate" role="menuitem">Duplicate tab</button>
+      <button class="menu-item" data-tab-action="pin" role="menuitem">Pin / Unpin</button>
+      <div class="menu-sep"></div>
+      <button class="menu-item" data-tab-action="close" role="menuitem">Close tab <kbd>Ctrl W</kbd></button>
+      <button class="menu-item" data-tab-action="close-others" role="menuitem">Close other tabs</button>
+      <button class="menu-item" data-tab-action="close-right" role="menuitem">Close tabs to the right</button>
+      <div class="menu-sep"></div>
+      <button class="menu-item" data-tab-action="inspect" role="menuitem">Inspect page</button>
+    </div>
 
     <!-- ── More menu ── -->
     <div class="menu hidden" id="more-menu" role="menu">

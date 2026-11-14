@@ -106,8 +106,15 @@ export function normalizeInput(raw, opts = {}) {
 }
 
 function search(query, opts) {
-  const engine = searchEngineById(opts.searchEngine || DEFAULT_SEARCH_ENGINE);
-  return { type: 'search', url: engine.url + encodeURIComponent(query), query };
+  const q = encodeURIComponent(query);
+  const engine = opts.searchEngine || DEFAULT_SEARCH_ENGINE;
+  // Custom engine: a user URL template, "{query}" replaced or query appended.
+  const url = engine === 'custom' && opts.customSearchUrl
+    ? (opts.customSearchUrl.includes('{query}')
+        ? opts.customSearchUrl.split('{query}').join(q)
+        : opts.customSearchUrl + q)
+    : searchEngineById(engine).url + q;
+  return { type: 'search', url, query };
 }
 
 /** Extract the host from an absolute http(s) URL, or null. */

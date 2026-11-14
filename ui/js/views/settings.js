@@ -94,10 +94,14 @@ async function renderCategory(category) {
         </div>
         <div class="setting-row">
           <div><div class="s-title">Default search engine</div>
-            <div class="s-desc">Used when the address bar contains a query instead of a URL.</div></div>
-          <select id="setting-search-engine">
-            ${SEARCH_ENGINES.map((e) => `<option value="${e.id}" ${s.search_engine === e.id ? 'selected' : ''}>${escapeHtml(e.name)}</option>`).join('')}
-          </select>
+            <div class="s-desc">Used when the address bar contains a query instead of a URL. Pick “Custom…” to use any search URL template.</div></div>
+          <div class="engine-controls">
+            <select id="setting-search-engine">
+              ${SEARCH_ENGINES.map((e) => `<option value="${e.id}" ${s.search_engine === e.id ? 'selected' : ''}>${escapeHtml(e.name)}</option>`).join('')}
+              <option value="custom" ${s.search_engine === 'custom' ? 'selected' : ''}>Custom…</option>
+            </select>
+            <input id="setting-custom-search" type="text" spellcheck="false" placeholder="https://example.com/search?q={query}" value="${escapeHtml(s.custom_search_url ?? '')}" class="${s.search_engine === 'custom' ? '' : 'hidden'}" aria-label="Custom search URL template"/>
+          </div>
         </div>
         <div class="setting-row">
           <div><div class="s-title">Always use HTTPS</div>
@@ -204,7 +208,25 @@ function wireSettingsPage(container) {
   on('#setting-search-engine', 'change', async (e) => {
     store.settings.search_engine = e.target.value;
     await api.setSetting('search_engine', e.target.value);
+    container.querySelector('#setting-custom-search')?.classList.toggle('hidden', e.target.value !== 'custom');
     toast('Search engine updated.');
+  });
+
+  on('#setting-custom-search', 'change', async (e) => {
+    const value = e.target.value.trim();
+    const lower = value.toLowerCase();
+    if (value && !lower.startsWith('https://') && !lower.startsWith('http://')) {
+      toast('Custom search URL must start with http:// or https://.');
+      return;
+    }
+    store.settings.custom_search_url = value;
+    if (value) await api.setSetting('custom_search_url', value);
+    if (store.settings.search_engine !== 'custom') {
+      store.settings.search_engine = 'custom';
+      await api.setSetting('search_engine', 'custom');
+      container.querySelector('#setting-search-engine').value = 'custom';
+    }
+    if (value) toast('Custom search engine saved.');
   });
 
   on('#setting-https-first', 'change', async (e) => {

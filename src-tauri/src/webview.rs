@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 
 use serde_json::json;
 use tauri::{
@@ -49,6 +50,59 @@ impl Default for LayoutState {
     }
   }
 }
+
+/// Real page favicons: after a page finishes loading, this tiny script briefly
+/// replaces the document title with the favicon URL — the only channel a
+/// remote page has to reach us (it gets no IPC access).
+/// WebView2 strips control characters from delivered titles, so the probe
+/// result is recognized by *shape* in the title handler (an absolute URL),
+/// not by a marker: `on_document_title_changed` reports it as a favicon and
+/// never persists it as the tab title.
+const FAVICON_PROBE_JS: &str = r#"
+(function () {
+  var link = document.querySelector('link[rel~="icon"]');
+  document.title = (link && link.href) || location.origin + '/favicon.ico';
+})();
+"#;
+
+/// Find-in-page script. Placeholders: __QUERY__ (a JSON string literal) and
+/// __FORWARD__ (true/false). Keeps match state in `window.__govindFind` so
+/// repeated calls cycle through the matches.
+const FIND_IN_PAGE_JS: &str = r#"
+(function (q, forward) {
+  var out = [];
+  var walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, {
+    acceptNode: function (n) {
+      return n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+  while (walker.nextNode()) out.push(walker.currentNode);
+  var hay = '', starts = [];
+  for (var i = 0; i < out.length; i++) { starts[i] = hay.length; hay += out[i].nodeValue; }
+  var lower = hay.toLowerCase(), needle = q.toLowerCase(), matches = [];
+  var at = lower.indexOf(needle);
+  while (at !== -1) { matches.push(at); at = lower.indexOf(needle, at + needle.length); }
+  if (!matches.length) { window.__govindFind = null; return false; }
+  var state = window.__govindFind || { idx: -1 };
+  state.idx = forward
+    ? (state.idx + 1) % matches.length
+    : (state.idx <= 0 ? matches.length - 1 : state.idx - 1);
+  window.__govindFind = state;
+  var pos = matches[state.idx];
+  var lo = 0, hi = starts.length - 1;
+  while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (starts[mid] <= pos) lo = mid; else hi = mid - 1; }
+  var node = out[lo], off = pos - starts[lo];
+  var range = document.createRange();
+  range.setStart(node, off);
+  range.setEnd(node, Math.min(off + q.length, node.nodeValue.length));
+  var sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  var el = range.startContainer.parentElement;
+  if (el) el.scrollIntoView({ block: 'center' });
+  return true;
+})(__QUERY__, __FORWARD__);
+"#;
 
 pub struct TabWebviewManager {
   webviews: Mutex<HashMap<String, Webview>>,
@@ -170,12 +224,25 @@ impl TabWebviewManager {
         true
       })
       .on_document_title_changed(move |_webview, title| {
+        // The favicon probe (after page load) briefly replaces the document
+        // title with the favicon URL. Absolute-URL titles are favicon probes,
+        // never page titles — a real page is almost never titled like that.
+        let lower = title.to_ascii_lowercase();
+        let is_favicon_probe =
+          lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("data:");
+        if is_favicon_probe {
+          let _ = title_handle.emit(
+            "tab-favicon-changed",
+            json!({ "tabId": title_id, "faviconUrl": title }),
+          );
+          return;
+        }
         let _ = title_handle.emit(
           "tab-title-changed",
           json!({ "tabId": title_id, "title": title }),
         );
       })
-      .on_page_load(move |_webview, payload| {
+      .on_page_load(move |webview, payload| {
         let event = match payload.event() {
           PageLoadEvent::Started => "tab-load-started",
           PageLoadEvent::Finished => "tab-load-finished",
@@ -184,6 +251,16 @@ impl TabWebviewManager {
           event,
           json!({ "tabId": load_id, "url": payload.url().to_string() }),
         );
+        // Ask the page for its favicon once it has fully loaded. Off-thread:
+        // eval from a non-UI thread is dispatched to the event loop, while
+        // doing heavy work inside this callback can wedge WebView2.
+        if matches!(payload.event(), PageLoadEvent::Finished) {
+          let probe = webview.clone();
+          std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            let _ = probe.eval(FAVICON_PROBE_JS);
+          });
+        }
       })
       .on_download(move |_webview, event| {
         match event {
@@ -251,6 +328,35 @@ impl TabWebviewManager {
   pub fn eval_tab(&self, tab_id: &str, js: &str) {
     if let Some(webview) = self.webviews().get(tab_id) {
       let _ = webview.eval(js);
+    }
+  }
+
+  /// Find text in a tab's page. Injected script walks the text nodes, selects
+  /// the next/previous match and scrolls it into view. An empty query clears
+  /// the selection. `ponytail:` matches never span two text nodes (a query
+  /// crossing an element boundary is not found) — upgrade to a walker over
+  /// concatenated text if that ever matters.
+  pub fn find_tab(&self, tab_id: &str, query: &str, forward: bool) {
+    if let Some(webview) = self.webviews().get(tab_id) {
+      let js = if query.is_empty() {
+        "(function(){var s=window.getSelection();s&&s.removeAllRanges();window.__govindFind=null;return true;})();".to_string()
+      } else {
+        let escaped = serde_json::to_string(query).unwrap_or_else(|_| "\"\"".into());
+        FIND_IN_PAGE_JS
+          .replace("__QUERY__", &escaped)
+          .replace("__FORWARD__", if forward { "true" } else { "false" })
+      };
+      let _ = webview.eval(&js);
+    }
+  }
+
+  /// Open the engine DevTools for a tab's page.
+  ///
+  /// Available in every build: the `devtools` feature is enabled on the tauri
+  /// dependency (see Cargo.toml).
+  pub fn inspect(&self, tab_id: &str) {
+    if let Some(webview) = self.webviews().get(tab_id) {
+      webview.open_devtools();
     }
   }
 

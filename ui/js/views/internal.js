@@ -13,6 +13,7 @@
 import { $, $$, escapeHtml, formatBytes, formatTime, toast } from '../lib/dom.js';
 import * as api from '../services/ipc.js';
 import { displayUrl, hostOf, monogram } from '../lib/url.js';
+import { buildBookmarksHtml, parseBookmarksHtml } from '../lib/bookmarks-file.js';
 import { store, refreshBookmarks } from '../state/store.js';
 import { renderSettingsPage } from './settings.js';
 
@@ -273,7 +274,54 @@ function updateHeaderActions() {
   if (page === 'downloads') {
     buttons.push('<button class="btn-secondary" data-action="clear-downloads">Clear all</button>');
   }
+  if (page === 'bookmarks') {
+    buttons.push('<button class="btn-secondary" data-action="export-bookmarks">Export</button>');
+    buttons.push('<button class="btn-secondary" data-action="import-bookmarks">Import…</button>');
+  }
   host.innerHTML = buttons.join('');
+}
+
+/** Export the bookmark list as a Netscape bookmark file (via the engine download). */
+function downloadBookmarksFile() {
+  const html = buildBookmarksHtml(store.bookmarks);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  a.download = 'govind-bookmarks.html';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast('Bookmarks exported — the file was saved to your downloads.');
+}
+
+/** Import a bookmarks HTML file exported from any browser. */
+function ensureImportInput() {
+  let input = $('#import-bookmarks-input');
+  if (input) return input;
+  input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.html,.htm';
+  input.id = 'import-bookmarks-input';
+  input.style.display = 'none';
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    try {
+      const items = parseBookmarksHtml(await file.text());
+      let added = 0;
+      for (const { title, url } of items.slice(0, 1000)) {
+        if (store.bookmarks.some((b) => b.url === url)) continue;
+        await api.saveBookmark(title || url, url);
+        added += 1;
+      }
+      await renderInternalPage();
+      document.dispatchEvent(new CustomEvent('govind:bookmarks-changed'));
+      toast(`Imported ${added} bookmark${added === 1 ? '' : 's'}.`);
+    } catch (err) {
+      toast(`Import failed: ${err?.message ?? err}`);
+    }
+  });
+  document.body.appendChild(input);
+  return input;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -393,6 +441,14 @@ export function wireInternal() {
       }
 
       const action = e.target.closest('[data-action]')?.getAttribute('data-action');
+      if (action === 'export-bookmarks') {
+        downloadBookmarksFile();
+        return;
+      }
+      if (action === 'import-bookmarks') {
+        ensureImportInput().click();
+        return;
+      }
       if (action === 'clear-downloads') {
         await api.clearDownloads();
         uiState.downloadSelection.clear();

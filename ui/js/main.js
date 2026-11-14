@@ -6,7 +6,7 @@ import {
   store, initStore, createTab, closeTab, activateTab, togglePinTab, reorderTab,
   navigate, openInternalPage, goHome, goBack, goForward, reloadTab, createWorkspace,
   switchWorkspace, deleteWorkspace, toggleBookmarkCurrent, refreshBookmarks, syncNativeViews,
-  applyTabMeta, internalNavStep,
+  refreshTabs, applyTabMeta, internalNavStep,
 } from './state/store.js';
 import {
   renderAll, renderView, renderToolbar, renderTabs, renderSidebarFavorites,
@@ -18,7 +18,7 @@ import { applyTheme } from './views/settings.js';
 import { initPalette, openPalette, closePalette, isPaletteOpen } from './views/palette.js';
 import { reloadWebView, historyWebView } from './views/browser.js';
 import { isNative } from './services/ipc.js';
-import { displayUrl, HOME_URL, schemeOf } from './lib/url.js';
+import { displayUrl, HOME_URL, schemeOf, hostOf } from './lib/url.js';
 
 // ── Core actions ──────────────────────────────────────────────────────
 async function doNavigate(raw) {
@@ -81,7 +81,13 @@ const actions = {
   'prev-tab': async () => { await cycleTab(-1); },
   'zoom-in': async () => { await changeZoom(0.1); },
   'zoom-out': async () => { await changeZoom(-0.1); },
-  'zoom-reset': async () => { await api.zoomTab(store.activeTabId, 1).catch(() => {}); },
+  'zoom-reset': async () => { await changeZoomTo(1); },
+  'find': async () => { openFindBar(); },
+  'fullscreen': async () => { await toggleFullscreen(); },
+  'inspect': async () => {
+    const tab = store.activeTab();
+    if (tab && !store.isInternalTab(tab)) api.inspectTab(tab.id).catch(() => {});
+  },
 };
 
 /** Back: internal pages keep their own stack, web pages use the engine. */
@@ -108,8 +114,127 @@ async function goForwardInternal() {
 let zoomFactor = 1;
 async function changeZoom(delta) {
   zoomFactor = Math.min(3, Math.max(0.25, Math.round((zoomFactor + delta) * 100) / 100));
+  await changeZoomTo(zoomFactor);
+}
+
+/** Zoom the active tab and remember the level for the site's domain. */
+async function changeZoomTo(factor) {
+  zoomFactor = factor;
+  const tab = store.activeTab();
   await api.zoomTab(store.activeTabId, zoomFactor).catch(() => {});
-  toast(`Zoom: ${Math.round(zoomFactor * 100)}%`);
+  const key = tab && !store.isInternalTab(tab) ? `zoom:${hostOf(tab.url) ?? ''}` : null;
+  if (key && hostOf(tab.url)) {
+    store.settings[key] = String(zoomFactor);
+    api.setSetting(key, String(zoomFactor)).catch(() => {});
+  }
+  if (factor !== 1) toast(`Zoom: ${Math.round(factor * 100)}%`);
+}
+
+/** Re-apply the saved zoom of a site when one of its pages loads. */
+function applySavedZoom(tabId, url) {
+  if (!url || url.startsWith('govind://')) return;
+  const saved = parseFloat(store.settings[`zoom:${hostOf(url)}`] ?? '');
+  if (!Number.isNaN(saved) && saved !== 1) api.zoomTab(tabId, saved).catch(() => {});
+}
+
+// ── Find in page (Ctrl+F) ─────────────────────────────────────────────
+function openFindBar() {
+  const bar = $('#find-bar');
+  if (!bar) return;
+  bar.classList.remove('hidden');
+  // The native webview would cover the bar, so the web region shrinks while
+  // the bar is open (webRegion() measures it — see state/store.js).
+  syncNativeViews();
+  $('#find-input')?.focus();
+  $('#find-input').select();
+}
+
+function closeFindBar() {
+  const bar = $('#find-bar');
+  if (!bar || bar.classList.contains('hidden')) return;
+  bar.classList.add('hidden');
+  api.findInTab(store.activeTabId, '', true).catch(() => {});
+  syncNativeViews();
+}
+
+function wireFindBar() {
+  const input = $('#find-input');
+  if (!input) return;
+  const run = (forward) => api.findInTab(store.activeTabId, input.value, forward).catch(() => {});
+  $('#find-next')?.addEventListener('click', () => run(true));
+  $('#find-prev')?.addEventListener('click', () => run(false));
+  $('#find-close')?.addEventListener('click', closeFindBar);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); run(!e.shiftKey); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeFindBar(); }
+  });
+}
+
+// ── Fullscreen (F11): window fullscreen + immersive chrome ────────────
+async function toggleFullscreen() {
+  const on = !(await api.isFullscreen());
+  await api.setFullscreen(on).catch(() => {});
+  document.body.classList.toggle('immersive', on);
+  await syncNativeViews();
+  if (on) toast('Press F11 or Esc to leave fullscreen.');
+}
+
+// ── Tab context menu (right-click) ────────────────────────────────────
+function wireTabContextMenu() {
+  const menu = $('#tab-menu');
+  const list = $('#tab-list');
+  if (!menu || !list) return;
+  let ctxTabId = null;
+
+  list.addEventListener('contextmenu', (e) => {
+    const item = e.target.closest('[data-tab]');
+    if (!item) return;
+    e.preventDefault();
+    ctxTabId = item.getAttribute('data-tab');
+    menu.classList.remove('hidden');
+    menu.style.left = `${Math.min(e.clientX, window.innerWidth - 240)}px`;
+    menu.style.top = `${Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 8)}px`;
+  });
+
+  menu.addEventListener('click', async (e) => {
+    const action = e.target.closest('[data-tab-action]')?.getAttribute('data-tab-action');
+    if (!action || !ctxTabId) return;
+    menu.classList.add('hidden');
+    const tab = store.tabs.find((t) => t.id === ctxTabId);
+    try {
+      if (action === 'reload') {
+        if (tab && !store.isInternalTab(tab)) api.reloadTab(tab.id);
+      } else if (action === 'duplicate') {
+        const dup = await api.duplicateTab(ctxTabId);
+        await activateTab(dup.id);
+        await renderAll();
+      } else if (action === 'pin') {
+        await togglePinTab(ctxTabId);
+        await renderAll();
+      } else if (action === 'close') {
+        await closeTab(ctxTabId);
+        await renderAll();
+      } else if (action === 'close-others') {
+        await api.closeOtherTabs(ctxTabId, 'others');
+        await refreshTabs();
+        store.activeTabId = ctxTabId;
+        await syncNativeViews();
+        await renderAll();
+      } else if (action === 'close-right') {
+        await api.closeOtherTabs(ctxTabId, 'right');
+        await refreshTabs();
+        await renderAll();
+      } else if (action === 'inspect') {
+        actions.inspect();
+      }
+    } catch (err) {
+      toast(`Couldn't ${action}: ${err?.message ?? err}`);
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#tab-menu')) menu.classList.add('hidden');
+  });
 }
 
 async function cycleTab(delta) {
@@ -142,6 +267,8 @@ async function boot() {
   wireHome({ onNavigate: doNavigate, onOpenPanel: openPanelWithNav });
   wirePanels();
   wireMenuAndPopover();
+  wireFindBar();
+  wireTabContextMenu();
   wireGlobalEvents();
 
   initPalette(buildPaletteCommands());
@@ -347,6 +474,12 @@ function wireGlobalEvents() {
     if (!$('#view-home')?.classList.contains('hidden')) await renderHome();
   });
 
+  // Broken favicon images (site changed its icon): drop them silently.
+  document.addEventListener('error', (e) => {
+    const el = e.target;
+    if (el instanceof HTMLImageElement && el.classList.contains('tab-favicon-img')) el.remove();
+  }, true);
+
   // Keep native webviews aligned with the layout
   let resizeTimer = null;
   window.addEventListener('resize', () => {
@@ -368,8 +501,9 @@ async function wireNativeEvents() {
   api.listen('tab-url-changed', async (event) => {
     const { tabId, url } = event.payload ?? {};
     if (!tabId || !url) return;
-    applyTabMeta(tabId, { url });
-    await api.updateTabMeta(tabId, { url }).catch(() => {});
+    applyTabMeta(tabId, { url, favicon_url: null });
+    applySavedZoom(tabId, url);
+    await api.updateTabMeta(tabId, { url, faviconUrl: '' }).catch(() => {});
     if (tabId === store.activeTabId) {
       renderToolbar();
       const title = store.tabs.find((t) => t.id === tabId)?.title;
@@ -386,6 +520,17 @@ async function wireNativeEvents() {
     await api.updateTabMeta(tabId, { title }).catch(() => {});
     renderTabs();
     if (tabId === store.activeTabId) renderToolbar();
+  });
+
+  // The page's favicon (probed by the engine after each page load).
+  api.listen('tab-favicon-changed', async (event) => {
+    const { tabId, faviconUrl } = event.payload ?? {};
+    // Only real icons: sites like example.com ship `href="data:,"` placeholders.
+    const ok = /^https?:\/\//i.test(faviconUrl ?? '') || /^data:image\//i.test(faviconUrl ?? '');
+    if (!tabId || !ok) return;
+    applyTabMeta(tabId, { favicon_url: faviconUrl });
+    await api.updateTabMeta(tabId, { faviconUrl }).catch(() => {});
+    renderTabs();
   });
 
   api.listen('tab-load-started', (event) => {
@@ -440,6 +585,8 @@ function wireShortcuts() {
     if (mod && key === ',') { e.preventDefault(); actions.settings(); return; }
     if (mod && key === 'j') { e.preventDefault(); actions.downloads(); return; }
     if (mod && key === 'h') { e.preventDefault(); actions.history(); return; }
+    if (mod && key === 'f') { e.preventDefault(); actions.find(); return; }
+    if (key === 'f11') { e.preventDefault(); actions.fullscreen(); return; }
 
     // Ctrl/Cmd+1…9 — jump to tab N (9 = last)
     if (mod && /^[1-9]$/.test(key)) {
@@ -460,6 +607,8 @@ function wireShortcuts() {
     if (e.key === 'Escape') {
       if (isPaletteOpen()) return closePalette();
       if (isAnyPanelOpen()) return closePanels();
+      if (!$('#find-bar')?.classList.contains('hidden')) return closeFindBar();
+      if (document.body.classList.contains('immersive')) { actions.fullscreen(); return; }
       $('#more-menu')?.classList.add('hidden');
       $('#security-popover')?.classList.add('hidden');
     }
@@ -492,6 +641,10 @@ function buildPaletteCommands() {
     { title: 'Move Tab Up', hint: 'Reorder', keywords: ['reorder'], run: run(async () => { if (store.activeTabId) { await reorderTab(store.activeTabId, 'up'); await renderAll(); } }) },
     { title: 'Move Tab Down', hint: 'Reorder', keywords: ['reorder'], run: run(async () => { if (store.activeTabId) { await reorderTab(store.activeTabId, 'down'); await renderAll(); } }) },
     { title: 'Pin / Unpin Current Tab', hint: 'Tabs', keywords: ['pin'], run: run(async () => { if (store.activeTabId) { await togglePinTab(store.activeTabId); await renderAll(); } }) },
+    { title: 'Duplicate Current Tab', hint: 'Tabs', keywords: ['copy', 'clone'], run: run(async () => { if (store.activeTabId) { const dup = await api.duplicateTab(store.activeTabId); await activateTab(dup.id); await renderAll(); } }) },
+    { title: 'Find in Page', hint: 'Ctrl F', keywords: ['search text', 'locate'], run: run(actions.find) },
+    { title: 'Toggle Fullscreen', hint: 'F11', keywords: ['immersive', 'maximize'], run: run(actions.fullscreen) },
+    { title: 'Inspect Page (DevTools)', hint: 'Engine', keywords: ['developer', 'console', 'debug'], run: run(actions.inspect) },
   ];
 }
 

@@ -10,6 +10,8 @@
     "core:window:allow-close",
     "core:window:allow-outer-position",
     "core:window:allow-scale-factor",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
     "shell:allow-open",
     "log:default"
   ]

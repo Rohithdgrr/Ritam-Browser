@@ -20,6 +20,8 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+L", "focus-omnibar"),
     ("Ctrl+R", "reload"),
     ("Ctrl+D", "bookmark"),
+    ("Ctrl+F", "find"),
+    ("F11", "fullscreen"),
     ("Ctrl+,", "settings"),
     ("Ctrl+1", "tab-1"),
     ("Ctrl+2", "tab-2"),
@@ -61,6 +63,17 @@ fn unregister_shortcuts(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Block auto-playing media before any webview exists (WebView2 reads this
+    // env var). Append to — never clobber — developer-provided flags.
+    let existing =
+        std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+    if !existing.contains("autoplay-policy") {
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            format!("{existing} --autoplay-policy=user-gesture-required").trim(),
+        );
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {
             // Second launch: focus the existing window instead of opening a new one.
@@ -129,6 +142,10 @@ pub fn run() {
             commands::tabs::reload_tab,
             commands::tabs::print_tab,
             commands::tabs::zoom_tab,
+            commands::tabs::find_in_tab,
+            commands::tabs::inspect_tab,
+            commands::tabs::duplicate_tab,
+            commands::tabs::close_other_tabs,
             commands::tabs::sync_tab_windows,
             // Workspaces
             commands::workspaces::create_workspace,

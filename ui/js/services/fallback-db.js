@@ -437,6 +437,33 @@ export function createFallbackDb(storage) {
     async reload_tab() { return { ok: true }; },
     async print_tab() { return { ok: true }; },
     async zoom_tab() { return { ok: true }; },
+    async find_in_tab() { return { ok: true }; },
+    async inspect_tab() { return { ok: true }; },
+    async duplicate_tab({ tab_id } = {}) {
+      const db = load();
+      const source = findTab(db, tab_id);
+      if (!source) throw new Error('tab not found');
+      const clone = {
+        ...source, id: 'fb-' + Math.random().toString(16).slice(2, 8),
+        is_pinned: 0, sort_order: (db.tabs?.length ?? 0) + 1,
+        created_at: now(), last_active_at: now(),
+      };
+      db.tabs.push(clone);
+      save(db);
+      return clone;
+    },
+    async close_other_tabs({ tab_id, scope } = {}) {
+      const db = load();
+      const source = findTab(db, tab_id);
+      if (!source) throw new Error('tab not found');
+      const siblings = db.tabs.filter((t) => t.workspace_id === source.workspace_id && t.id !== tab_id);
+      const targets = scope === 'right'
+        ? siblings.filter((t) => t.sort_order > source.sort_order)
+        : siblings;
+      db.tabs = db.tabs.filter((t) => !targets.includes(t));
+      save(db);
+      return db.tabs.filter((t) => t.workspace_id === source.workspace_id);
+    },
   };
 
   return api;

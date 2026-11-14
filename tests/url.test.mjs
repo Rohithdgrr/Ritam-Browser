@@ -51,6 +51,16 @@ test('selected search engine is honored', () => {
   assert.ok(out.url.startsWith('https://www.google.com/search?q='));
 });
 
+test('custom search engine: {query} placeholder and plain prefix', () => {
+  const t = normalizeInput('cats', { searchEngine: 'custom', customSearchUrl: 'https://s.example/?q={query}&x=1' });
+  assert.equal(t.url, 'https://s.example/?q=cats&x=1');
+  const p = normalizeInput('cats', { searchEngine: 'custom', customSearchUrl: 'https://s.example/search?q=' });
+  assert.equal(p.url, 'https://s.example/search?q=cats');
+  // No custom URL configured → falls back to the default engine.
+  const none = normalizeInput('cats', { searchEngine: 'custom' });
+  assert.ok(none.url.startsWith('https://duckduckgo.com/?q='));
+});
+
 test('javascript: and file: schemes are never navigated — they become searches', () => {
   const js = normalizeInput('javascript:alert(1)');
   assert.equal(js.type, 'search');

@@ -21,12 +21,16 @@ SQLite on your disk, zero telemetry, no accounts.
 | Privacy: clear history / downloads / site permissions, permission decisions | ✅ Working |
 | Command palette (Ctrl+K), keyboard shortcuts (also while a page has focus) | ✅ Working |
 | **Real page browsing** | ✅ Embedded webviews (one per tab, single window) |
-| **Search from the address bar** | ✅ DuckDuckGo / Google / Bing / Startpage |
+| **Search from the address bar** | ✅ Built-in engines + custom engine URL template |
 | **Internal pages** `govind://history`, `/downloads`, `/bookmarks`, `/settings` | ✅ Working (full-screen, chrome:// style) |
 | Page titles from the live page, live omnibar URL, zoom, print | ✅ Working |
+| Find in page (Ctrl+F), fullscreen (F11), per-domain zoom memory | ✅ Working |
+| Real favicons from the page, tab context menu (duplicate, close others / right) | ✅ Working |
+| Bookmarks import / export (Netscape HTML, works with Chrome/Firefox/Edge) | ✅ Working |
+| Page DevTools (Inspect page), auto-play blocking | ✅ Working |
+| PDF viewing | ✅ Handled natively by the system WebView |
 | Protocol Lab | ⏭️ Skipped per product decision (was in milestone 1 scope) |
-| Reader mode, split view, undo center, finds-in-page | ❌ Not in this milestone |
-| Bookmark favicons from the network | ⚠️ Monogram letters only (by design for now) |
+| Reader mode, split view, finds-in-page match counts, tab sleeping | ❌ Not in this milestone |
 | Per-tab identity/cookie isolation, CDP access, extension support | ❌ Needs a Chromium engine (PRD §31) |
 
 ### The honest part: web content today

@@ -13,8 +13,10 @@ const KNOWN_KEYS: &[&str] = &[
     "https_first",
     "theme",
     "active_workspace_id",
+    "custom_search_url",
 ];
-const SEARCH_ENGINES: &[&str] = &["duckduckgo", "google", "bing", "startpage"];
+// Plus dynamic per-domain zoom keys: `zoom:<host>` → factor.
+const SEARCH_ENGINES: &[&str] = &["duckduckgo", "google", "bing", "startpage", "custom"];
 const THEMES: &[&str] = &["zen-light", "zen-dark"];
 
 const DEFAULTS: &[(&str, &str)] = &[
@@ -40,7 +42,8 @@ pub fn get_settings(db: State<'_, DbState>) -> Result<HashMap<String, String>, A
 
 #[tauri::command]
 pub fn set_setting(db: State<'_, DbState>, key: String, value: String) -> Result<serde_json::Value, AppError> {
-    if !KNOWN_KEYS.contains(&key.as_str()) {
+    let known = KNOWN_KEYS.contains(&key.as_str()) || key.starts_with("zoom:");
+    if !known {
         return Err(AppError::InvalidInput(format!("unknown setting key: {key}")));
     }
     let valid = match key.as_str() {
@@ -48,6 +51,15 @@ pub fn set_setting(db: State<'_, DbState>, key: String, value: String) -> Result
         "theme" => THEMES.contains(&value.as_str()),
         "restore_session" | "https_first" => value == "true" || value == "false",
         "active_workspace_id" => value.len() <= 128 && !value.contains(char::is_whitespace),
+        // A custom search URL template: http(s) only, optional "{query}" placeholder.
+        "custom_search_url" => {
+            let lower = value.to_ascii_lowercase();
+            (lower.starts_with("https://") || lower.starts_with("http://")) && value.len() <= 500
+        }
+        _ if key.starts_with("zoom:") => value
+            .parse::<f64>()
+            .map(|f| (0.25..=3.0).contains(&f))
+            .unwrap_or(false),
         _ => false,
     };
     if !valid {

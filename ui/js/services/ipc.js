@@ -39,6 +39,19 @@ async function invoke(command, args = {}) {
 
 export const isNative = isTauri;
 
+/** Fullscreen (F11) — window API, native only. */
+export async function setFullscreen(on) {
+  const w = currentWindow();
+  if (!w) { showPreviewNotice('Fullscreen is live in the installed app.'); return false; }
+  const state = await w.isFullscreen();
+  if (state !== on) await w.setFullscreen(on);
+  return on;
+}
+export async function isFullscreen() {
+  const w = currentWindow();
+  return w ? await w.isFullscreen() : false;
+}
+
 // ── Browser / tab surface ─────────────────────────────────────────────
 export const createTab = ({ workspaceId, url } = {}) => invoke('create_tab', { workspaceId, url });
 export const listTabs = ({ workspaceId } = {}) => invoke('list_tabs', { workspaceId });
@@ -55,6 +68,11 @@ export const reloadTab = (tabId) => invoke('reload_tab', { tabId });
 export const syncTabWindows = (args = {}) => invoke('sync_tab_windows', args);
 export const printTab = (tabId) => invoke('print_tab', { tabId });
 export const zoomTab = (tabId, factor) => invoke('zoom_tab', { tabId, factor });
+export const findInTab = (tabId, query, forward = true) =>
+  invoke('find_in_tab', { tabId, query, forward });
+export const inspectTab = (tabId) => invoke('inspect_tab', { tabId });
+export const duplicateTab = (tabId) => invoke('duplicate_tab', { tabId });
+export const closeOtherTabs = (tabId, scope) => invoke('close_other_tabs', { tabId, scope });
 
 // ── Workspaces ────────────────────────────────────────────────────────
 export const createWorkspace = (name) => invoke('create_workspace', { name });

@@ -67,9 +67,12 @@ export function renderTabs() {
   wrap.innerHTML = ordered.map((tab) => {
     const isActive = tab.id === store.activeTabId;
     const title = tab.title || 'New Tab';
+    const favicon = tab.favicon_url
+      ? `<span class="tab-favicon">${escapeHtml(monogram(tab.url))}<img class="tab-favicon-img" src="${escapeHtml(tab.favicon_url)}" alt="" width="16" height="16"/></span>`
+      : `<span class="tab-favicon">${escapeHtml(monogram(tab.url))}</span>`;
     return `
       <div class="tab-item ${isActive ? 'active' : ''} ${tab.is_pinned ? 'pinned' : ''}" role="tab" aria-selected="${isActive}" tabindex="0" data-tab="${escapeHtml(tab.id)}" title="${escapeHtml(tab.url)}">
-        <span class="tab-favicon">${escapeHtml(monogram(tab.url))}</span>
+        ${favicon}
         <span class="tab-title">${escapeHtml(title)}</span>
         <button class="tab-pin ${tab.is_pinned ? 'active' : ''}" data-pin-tab="${escapeHtml(tab.id)}" title="${tab.is_pinned ? 'Unpin tab' : 'Pin tab'}" aria-pressed="${tab.is_pinned ? 'true' : 'false'}" aria-label="Pin or unpin tab">
           <svg class="icon sm" viewBox="0 0 24 24" ${tab.is_pinned ? 'fill="currentColor"' : ''}><path d="M12 17v5M9 3h6l1 7 3 3v2H5v-2l3-3z"/></svg>

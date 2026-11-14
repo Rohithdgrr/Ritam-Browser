@@ -635,3 +635,39 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .settings-card .about-table td { padding: 9px 0; border-bottom: 1px solid var(--zen-border); font-size: 12px; }
 .settings-card .about-table tr:last-child td { border-bottom: none; }
 .settings-card .about-table td:first-child { color: var(--zen-muted); width: 140px; }
+
+/* ============ Find in page (Ctrl+F) ============ */
+.find-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; background: var(--zen-card);
+  border-bottom: 1px solid var(--zen-border); z-index: 20;
+}
+.find-bar input {
+  flex: 0 0 260px; max-width: 40%; height: 30px; padding: 0 10px;
+  background: var(--zen-surface); border: 1px solid var(--zen-border);
+  border-radius: var(--radius-sm); color: var(--zen-text); font-size: 12.5px; outline: none;
+}
+.find-bar input:focus { border-color: var(--zen-sage); }
+.find-hint { font-size: 10.5px; color: var(--zen-subtle); }
+
+/* ============ Tab context menu (follows the cursor) ============ */
+#tab-menu { position: fixed; left: 0; top: 0; right: auto; }
+
+/* Real favicons in the tab list (image overlays the monogram; a broken icon
+   is removed by JS and the monogram shows through) */
+.tab-favicon { position: relative; }
+.tab-favicon-img { position: absolute; inset: 0; width: 16px; height: 16px; border-radius: 4px; object-fit: cover; }
+
+/* Custom search engine row on the settings page */
+.engine-controls { display: flex; flex-direction: column; gap: 8px; min-width: 260px; }
+#setting-custom-search {
+  height: 32px; padding: 0 10px; background: var(--zen-surface);
+  border: 1px solid var(--zen-border); border-radius: var(--radius-sm);
+  color: var(--zen-text); font-size: 12px;
+}
+
+/* Immersive fullscreen (F11): hide all browser chrome, the page takes over */
+body.immersive .titlebar,
+body.immersive .toolbar,
+body.immersive .sidebar { display: none !important; }
+

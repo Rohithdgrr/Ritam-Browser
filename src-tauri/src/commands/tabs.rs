@@ -229,6 +229,7 @@ pub fn update_tab_meta(
     tab_id: String,
     title: Option<String>,
     url: Option<String>,
+    favicon_url: Option<String>,
 ) -> Result<Tab, AppError> {
     let conn = db.conn();
     if let Some(url) = url {
@@ -238,6 +239,17 @@ pub fn update_tab_meta(
     if let Some(title) = title {
         let clean: String = title.chars().take(500).collect();
         conn.execute("UPDATE tabs SET title = ?1 WHERE id = ?2", params![clean, tab_id])?;
+    }
+    if let Some(favicon) = favicon_url {
+        if favicon.is_empty() {
+            conn.execute("UPDATE tabs SET favicon_url = NULL WHERE id = ?1", params![tab_id])?;
+        } else {
+            let clean: String = favicon.trim().chars().take(2048).collect();
+            let lower = clean.to_ascii_lowercase();
+            if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("data:image/") {
+                conn.execute("UPDATE tabs SET favicon_url = ?1 WHERE id = ?2", params![clean, tab_id])?;
+            }
+        }
     }
     conn.execute("UPDATE tabs SET last_active_at = ?1 WHERE id = ?2", params![now_ms(), tab_id])?;
     get_tab(&conn, &tab_id)
@@ -314,6 +326,106 @@ pub fn zoom_tab(manager: State<'_, TabWebviewManager>, tab_id: Option<String>, f
     if let Some(id) = tab_id {
         manager.set_zoom(&id, factor);
     }
+}
+
+/// Find text in a tab's page. Empty query clears the selection.
+#[tauri::command]
+pub fn find_in_tab(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: Option<String>,
+    query: String,
+    forward: Option<bool>,
+) {
+    if let Some(id) = tab_id {
+        manager.find_tab(&id, &query, forward.unwrap_or(true));
+    }
+}
+
+/// Open the engine DevTools for a tab's page.
+#[tauri::command]
+pub fn inspect_tab(manager: State<'_, TabWebviewManager>, tab_id: Option<String>) {
+    if let Some(id) = tab_id {
+        manager.inspect(&id);
+    }
+}
+
+/// Duplicate a tab (same URL, same workspace) and load it in a fresh webview.
+///
+/// `async` for the same reason as `navigate_tab`: webview creation on Windows.
+#[tauri::command]
+pub async fn duplicate_tab(
+    app: AppHandle,
+    db: State<'_, DbState>,
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+) -> Result<Tab, AppError> {
+    let source = {
+        let conn = db.conn();
+        get_tab(&conn, &tab_id)?
+    };
+
+    let new_id = uuid::Uuid::new_v4().to_string();
+    {
+        let conn = db.conn();
+        let order: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tabs WHERE workspace_id = ?1",
+            params![source.workspace_id],
+            |r| r.get(0),
+        )?;
+        let now = now_ms();
+        conn.execute(
+            "INSERT INTO tabs (id, workspace_id, url, title, favicon_url, is_pinned, sort_order, created_at, last_active_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?7)",
+            params![new_id, source.workspace_id, source.url, source.title, source.favicon_url, order, now],
+        )?;
+    }
+
+    // Web pages need a fresh webview; internal pages are shell-rendered.
+    if !crate::navigation::is_internal_url(&source.url) {
+        manager.navigate(&app, &new_id, &source.url).await?;
+    }
+    let conn = db.conn();
+    get_tab(&conn, &new_id)
+}
+
+/// Close other tabs of the same workspace: `scope` "others" closes every tab
+/// except `tab_id`; "right" closes the tabs after it in tab-bar order.
+#[tauri::command]
+pub fn close_other_tabs(
+    db: State<'_, DbState>,
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+    scope: String,
+) -> Result<Vec<Tab>, AppError> {
+    let conn = db.conn();
+    let keep = get_tab(&conn, &tab_id)?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {TAB_COLS} FROM tabs WHERE workspace_id = ?1 ORDER BY is_pinned DESC, sort_order ASC"
+    ))?;
+    let ordered: Vec<Tab> = stmt
+        .query_map(params![keep.workspace_id], row_to_tab)?
+        .collect::<Result<_, _>>()?;
+    drop(stmt);
+
+    let idx = ordered
+        .iter()
+        .position(|t| t.id == tab_id)
+        .ok_or_else(|| AppError::NotFound("tab not found".into()))?;
+    let targets: Vec<String> = match scope.as_str() {
+        "right" => ordered.iter().skip(idx + 1).map(|t| t.id.clone()).collect(),
+        _ => ordered.iter().filter(|t| t.id != tab_id).map(|t| t.id.clone()).collect(),
+    };
+    for id in &targets {
+        manager.close_view(id);
+        conn.execute("DELETE FROM tabs WHERE id = ?1", params![id])?;
+    }
+    conn.execute(
+        "UPDATE tabs SET last_active_at = ?1 WHERE id = ?2",
+        params![now_ms(), tab_id],
+    )?;
+    drop(conn);
+    manager.apply();
+    list_tabs(db, Some(keep.workspace_id))
 }
 
 /// Keep the native webviews aligned with the shell layout.

@@ -168,6 +168,7 @@ export async function reorderTab(tabId, direction) {
 export async function navigate(rawInput) {
   const nav = normalizeInput(rawInput, {
     searchEngine: store.settings.search_engine,
+    customSearchUrl: store.settings.custom_search_url,
     httpsFirst: store.settings.https_first !== 'false',
   });
   if (!nav) return null;
@@ -288,6 +289,7 @@ export function applyTabMeta(tabId, meta = {}) {
   if (!tab) return null;
   if (meta.url && meta.url !== tab.url) tab.url = meta.url;
   if (meta.title) tab.title = meta.title;
+  if (meta.favicon_url !== undefined) tab.favicon_url = meta.favicon_url;
   return tab;
 }
 
@@ -302,10 +304,15 @@ export function applyTabMeta(tabId, meta = {}) {
 export function webRegion() {
   const toolbar = document.querySelector('.toolbar');
   const sidebar = document.getElementById('sidebar');
+  const findBar = document.getElementById('find-bar');
   const toolbarRect = toolbar?.getBoundingClientRect();
   const sidebarRect = sidebar?.getBoundingClientRect();
+  // While the find bar is open it takes a strip of the web region.
+  const findRect = findBar && !findBar.classList.contains('hidden')
+    ? findBar.getBoundingClientRect()
+    : null;
   const x = sidebarRect && sidebarRect.width > 0 ? sidebarRect.right : 0;
-  const y = toolbarRect ? toolbarRect.bottom + 2 : 80; // + loading bar
+  const y = (findRect?.bottom ?? toolbarRect?.bottom ?? 80) + 2; // + loading bar
   const width = Math.max(1, window.innerWidth - x);
   const height = Math.max(1, window.innerHeight - y);
   return { x, y, width, height };
