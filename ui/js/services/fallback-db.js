@@ -318,12 +318,13 @@ export function createFallbackDb(storage) {
     async list_downloads() {
       return [...load().downloads].sort((a, b) => b.created_at - a.created_at);
     },
-    async record_download({ url, filename, total_bytes, mime_type } = {}) {
+    async record_download({ url, filename, destination, total_bytes, mime_type } = {}) {
       if (!isSafeUrl(url)) throw new Error('disallowed url scheme');
       const db = load();
       const d = {
         id: id(), url, filename: String(filename || 'download').slice(0, 500),
-        destination: null, mime_type: mime_type ? String(mime_type).slice(0, 200) : null,
+        destination: destination ? String(destination).slice(0, 1024) : null,
+        mime_type: mime_type ? String(mime_type).slice(0, 200) : null,
         total_bytes: Number.isFinite(total_bytes) ? total_bytes : null,
         received_bytes: Number.isFinite(total_bytes) ? total_bytes : 0,
         status: 'completed', created_at: now(), completed_at: now(),
@@ -338,6 +339,13 @@ export function createFallbackDb(storage) {
       db.downloads = [];
       save(db);
       return n;
+    },
+    async remove_download({ download_id } = {}) {
+      const db = load();
+      const before = db.downloads.length;
+      db.downloads = db.downloads.filter((d) => d.id !== download_id);
+      save(db);
+      return before !== db.downloads.length;
     },
 
     // ── Settings ────────────────────────────────────────────
@@ -427,6 +435,8 @@ export function createFallbackDb(storage) {
     async go_back() { return { ok: true }; },
     async go_forward() { return { ok: true }; },
     async reload_tab() { return { ok: true }; },
+    async print_tab() { return { ok: true }; },
+    async zoom_tab() { return { ok: true }; },
   };
 
   return api;

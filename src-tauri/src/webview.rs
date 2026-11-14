@@ -1,148 +1,299 @@
-//! Tab webview management — interim strategy (ADR-006).
+//! Tab webview management — the browser core.
 //!
-//! Milestone 1 renders pages in *frameless, taskbar-less* native windows that are
-//! positioned over the main window's web content region and shown/hidden as tabs
-//! switch. This uses only stable Tauri 2 APIs so the scaffold builds today.
+//! Every tab owns one **child webview** that lives inside the main window
+//! (`Window::add_child`, Tauri 2 `unstable` feature) and is positioned over the
+//! shell's web-content region. Switching tabs shows/hides those views, so the
+//! whole browser is a single native window: no stray taskbar entries, no
+//! focus traps between windows, and page state survives tab switches.
 //!
-//! KNOWN LIMITATIONS (tracked in docs/ENGINE_SPIKE.md):
-//! - Clicking a page focuses the tab window; the main chrome keeps its layout
-//!   but OS-level shortcut quirks may occur.
-//! - Tab windows are not minimized with the main window on every platform.
-//! - Per-tab process isolation and memory accounting are engine concerns.
+//! Security: a child webview inherits the parent window's label, but Tauri's
+//! ACL only grants the app's commands to *local* origins — a remote page can
+//! never invoke a single Govind command (see `capabilities/default.json`).
 //!
-//! The child-webview approach (single window, embedded views) is the intended
-//! fix and is gated behind the Phase-0 spike — this module is the ONLY place
-//! that needs to change when the engine decision lands.
+//! Windows note: creating a WebView2 controller from inside a webview message
+//! handler deadlocks, so every command that creates a webview is `async` and
+//! runs on Tauri's async runtime instead of the UI thread.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
+use serde_json::json;
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder,
+  AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl,
 };
+use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent};
 
 use crate::error::AppError;
 
+/// Region of the main window (client-area coordinates) covered by the webview.
 #[derive(Debug, Clone)]
 pub struct LayoutState {
-    /// Offset of the web region relative to the main window's origin (logical px).
-    pub offset_x: f64,
-    pub offset_y: f64,
-    pub width: f64,
-    pub height: f64,
-    /// false → the shell is showing a non-browser view (home, settings, …): hide all tab windows.
-    pub visible: bool,
-    pub active: Option<String>,
+  pub offset_x: f64,
+  pub offset_y: f64,
+  pub width: f64,
+  pub height: f64,
+  /// false → the shell shows a non-browser view (home, settings …): hide every webview.
+  pub visible: bool,
+  pub active: Option<String>,
 }
 
 impl Default for LayoutState {
-    fn default() -> Self {
-        Self { offset_x: 0.0, offset_y: 48.0, width: 1000.0, height: 700.0, visible: false, active: None }
+  fn default() -> Self {
+    Self {
+      offset_x: 0.0,
+      offset_y: 80.0,
+      width: 1000.0,
+      height: 700.0,
+      visible: false,
+      active: None,
     }
+  }
 }
 
-pub struct TabWindowManager {
-    windows: Mutex<HashMap<String, WebviewWindow>>,
-    layout: Mutex<LayoutState>,
+pub struct TabWebviewManager {
+  webviews: Mutex<HashMap<String, Webview>>,
+  layout: Mutex<LayoutState>,
 }
 
-impl TabWindowManager {
-    pub fn new() -> Self {
-        Self { windows: Mutex::new(HashMap::new()), layout: Mutex::new(LayoutState::default()) }
+impl TabWebviewManager {
+  pub fn new() -> Self {
+    Self {
+      webviews: Mutex::new(HashMap::new()),
+      layout: Mutex::new(LayoutState::default()),
+    }
+  }
+
+  fn webviews(&self) -> MutexGuard<'_, HashMap<String, Webview>> {
+    // A poisoned mutex still holds a valid map — keep serving.
+    self.webviews.lock().unwrap_or_else(|e| e.into_inner())
+  }
+
+  fn layout(&self) -> LayoutState {
+    self.layout.lock().unwrap_or_else(|e| e.into_inner()).clone()
+  }
+
+  /// Store the new layout and re-apply bounds/visibility immediately.
+  pub fn set_layout(&self, layout: LayoutState, _app: &AppHandle) {
+    *self.layout.lock().unwrap_or_else(|e| e.into_inner()) = layout;
+    self.apply();
+  }
+
+  /// Show the active tab's webview over the web region; hide the others.
+  pub fn apply(&self) {
+    let layout = self.layout();
+    // Clone the handles first so the lock is not held across runtime calls.
+    let views: Vec<(String, Webview)> = self
+      .webviews()
+      .iter()
+      .map(|(id, webview)| (id.clone(), webview.clone()))
+      .collect();
+
+    for (tab_id, webview) in views {
+      let active = layout.visible && layout.active.as_deref() == Some(tab_id.as_str());
+      if active {
+        let _ = webview.set_position(LogicalPosition::new(layout.offset_x, layout.offset_y));
+        let _ = webview.set_size(LogicalSize::new(layout.width.max(1.0), layout.height.max(1.0)));
+        let _ = webview.show();
+      } else {
+        let _ = webview.hide();
+      }
+    }
+  }
+
+  /// Navigate a tab.
+  ///
+  /// The existing webview is reused so page state (scroll position, form input)
+  /// survives navigation; a new one is created on first use. Internal pages
+  /// (`govind://home`) are rendered by the shell, so their webview is dropped.
+  pub async fn navigate(&self, app: &AppHandle, tab_id: &str, url: &str) -> Result<(), AppError> {
+    // Internal pages (govind://…) are rendered by the shell, so the tab's
+    // webview is dropped and the shell takes over the content region.
+    if crate::navigation::is_internal_url(url) || url.eq_ignore_ascii_case("about:blank") {
+      self.close_view(tab_id);
+      return Ok(());
     }
 
-    fn windows(&self) -> std::sync::MutexGuard<'_, HashMap<String, WebviewWindow>> {
-        self.windows.lock().unwrap_or_else(|e| e.into_inner())
+    let parsed =
+      Url::parse(url).map_err(|e| AppError::InvalidInput(format!("invalid url: {e}")))?;
+
+    if let Some(webview) = self.webviews().get(tab_id) {
+      let _ = webview.navigate(parsed);
+      return Ok(());
     }
 
-    fn layout(&self) -> LayoutState {
-        self.layout.lock().unwrap_or_else(|e| e.into_inner()).clone()
-    }
+    self.create_view(app, tab_id, parsed).await
+  }
 
-    /// Store the new layout and re-apply window bounds/visibility immediately.
-    pub fn set_layout(&self, layout: LayoutState, app: &AppHandle) {
-        *self.layout.lock().unwrap_or_else(|e| e.into_inner()) = layout;
-        self.apply(app);
-    }
+  /// Create the child webview for a tab.
+  ///
+  /// Runs on Tauri's async runtime (the caller is an `async` command) — on
+  /// Windows this *must* not happen on the UI thread.
+  async fn create_view(
+    &self,
+    app: &AppHandle,
+    tab_id: &str,
+    url: Url,
+  ) -> Result<(), AppError> {
+    // NOTE: `get_webview_window("main")` returns `None` as soon as the window
+    // hosts child webviews (Tauri only exposes a *WebviewWindow* when all of
+    // its webviews share the window label), so the raw `Window` is used here.
+    let Some(window) = app.get_window("main") else {
+      return Err(AppError::Window("main window not found".into()));
+    };
 
-    /// Re-apply bounds/visibility from the stored layout. Called on move/resize/focus too.
-    pub fn apply(&self, app: &AppHandle) {
-        let layout = self.layout();
-        let Ok(main) = app
-            .get_webview_window("main")
-            .ok_or_else(|| ())
-        else {
-            return;
+    let layout = self.layout();
+    let position = LogicalPosition::new(layout.offset_x, layout.offset_y);
+    let size = LogicalSize::new(layout.width.max(1.0), layout.height.max(1.0));
+
+    let nav_id = tab_id.to_string();
+    let title_id = tab_id.to_string();
+    let load_id = tab_id.to_string();
+    let download_id = tab_id.to_string();
+    let popup_id = tab_id.to_string();
+
+    let nav_handle = app.clone();
+    let title_handle = app.clone();
+    let load_handle = app.clone();
+    let download_handle = app.clone();
+    let popup_handle = app.clone();
+
+    let builder = tauri::webview::WebviewBuilder::new(format!("tab-{tab_id}"), WebviewUrl::External(url))
+      .on_navigation(move |url| {
+        // Only real web pages may be loaded — no javascript:, file:, data:.
+        if !is_page_url(url) {
+          return false;
+        }
+        let _ = nav_handle.emit(
+          "tab-url-changed",
+          json!({ "tabId": nav_id, "url": url.to_string() }),
+        );
+        true
+      })
+      .on_document_title_changed(move |_webview, title| {
+        let _ = title_handle.emit(
+          "tab-title-changed",
+          json!({ "tabId": title_id, "title": title }),
+        );
+      })
+      .on_page_load(move |_webview, payload| {
+        let event = match payload.event() {
+          PageLoadEvent::Started => "tab-load-started",
+          PageLoadEvent::Finished => "tab-load-finished",
         };
-        let scale = main.scale_factor().unwrap_or(1.0);
-        let outer = main.outer_position().unwrap_or_else(|_| tauri::PhysicalPosition::new(0, 0));
-        let base_x = outer.x as f64 / scale;
-        let base_y = outer.y as f64 / scale;
-
-        for (tab_id, window) in self.windows().iter() {
-            if layout.visible && layout.active.as_deref() == Some(tab_id.as_str()) {
-                let _ = window.set_position(LogicalPosition::new(base_x + layout.offset_x, base_y + layout.offset_y));
-                let _ = window.set_size(LogicalSize::new(layout.width.max(1.0), layout.height.max(1.0)));
-                let _ = window.show();
-            } else {
-                let _ = window.hide();
-            }
+        let _ = load_handle.emit(
+          event,
+          json!({ "tabId": load_id, "url": payload.url().to_string() }),
+        );
+      })
+      .on_download(move |_webview, event| {
+        match event {
+          DownloadEvent::Requested { url, destination } => {
+            let _ = download_handle.emit(
+              "download-started",
+              json!({
+                "tabId": download_id,
+                "url": url.to_string(),
+                "filename": destination.file_name().map(|n| n.to_string_lossy().to_string()),
+              }),
+            );
+            true // allow the download
+          }
+          DownloadEvent::Finished { url, path, success } => {
+            let _ = download_handle.emit(
+              "download-finished",
+              json!({
+                "tabId": download_id,
+                "url": url.to_string(),
+                "path": path.map(|p| p.to_string_lossy().to_string()),
+                "success": success,
+              }),
+            );
+            true
+          }
+          _ => true,
         }
+      })
+      .on_new_window(move |url, _features| {
+        // Pop-ups become new tabs in the UI instead of native windows.
+        let _ = popup_handle.emit(
+          "tab-new-window",
+          json!({ "tabId": popup_id, "url": url.to_string() }),
+        );
+        NewWindowResponse::Deny
+      });
+
+    let webview = window
+      .add_child(builder, position, size)
+      .map_err(|e| AppError::Window(e.to_string()))?;
+
+    // Start hidden: the tab becomes visible when it is activated.
+    let _ = webview.hide();
+    self.webviews().insert(tab_id.to_string(), webview);
+    self.apply();
+    Ok(())
+  }
+
+  /// Destroy a tab's webview (tab closed, or the tab returned to the home page).
+  pub fn close_view(&self, tab_id: &str) {
+    if let Some(webview) = self.webviews().remove(tab_id) {
+      let _ = webview.close();
     }
+  }
 
-    /// Navigate a tab to a (validated) URL, recreating its native window.
-    /// Typing a new URL is a full navigation anyway, so view state reset is expected.
-    pub fn navigate(&self, app: &AppHandle, tab_id: &str, url: &str) -> Result<(), AppError> {
-        self.close_window(tab_id);
-
-        // Internal pages render in the shell, not in a native window.
-        if url == "govind://home" || url == "about:blank" {
-            return Ok(());
-        }
-
-        let parsed = tauri::Url::parse(url)
-            .map_err(|e| AppError::InvalidInput(format!("invalid url: {e}")))?;
-
-        let label = format!("tab-{tab_id}");
-        let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
-            .title("Govind Tab")
-            .decorations(false)
-            .skip_taskbar(true)
-            .resizable(true)
-            .focused(false)
-            .visible(false)
-            .build()
-            .map_err(|e| AppError::Window(e.to_string()))?;
-
-        self.windows().insert(tab_id.to_string(), window);
-        self.apply(app);
-        Ok(())
+  pub fn close_all(&self) {
+    let drained: Vec<Webview> = self.webviews().drain().map(|(_, w)| w).collect();
+    for webview in drained {
+      let _ = webview.close();
     }
+  }
 
-    pub fn close_window(&self, tab_id: &str) {
-        if let Some(window) = self.windows().remove(tab_id) {
-            let _ = window.close();
-        }
+  /// Run JS inside a tab's webview (used for back/forward).
+  pub fn eval_tab(&self, tab_id: &str, js: &str) {
+    if let Some(webview) = self.webviews().get(tab_id) {
+      let _ = webview.eval(js);
     }
+  }
 
-    pub fn close_all(&self) {
-        let drained: Vec<WebviewWindow> = self.windows().drain().map(|(_, w)| w).collect();
-        for window in drained {
-            let _ = window.close();
-        }
+  /// Reload a tab's webview natively.
+  pub fn reload_tab(&self, tab_id: &str) {
+    if let Some(webview) = self.webviews().get(tab_id) {
+      let _ = webview.reload();
     }
+  }
 
-    /// Run JS inside a tab window (used for back/forward/reload).
-    pub fn eval_tab(&self, tab_id: &str, js: &str) {
-        if let Some(window) = self.windows().get(tab_id) {
-            let _ = window.eval(js);
-        }
+  /// Print the page of a tab (not the shell chrome).
+  pub fn print_tab(&self, tab_id: &str) {
+    if let Some(webview) = self.webviews().get(tab_id) {
+      let _ = webview.print();
     }
+  }
+
+  /// Set the zoom factor of a tab's page (1.0 = 100%).
+  pub fn set_zoom(&self, tab_id: &str, factor: f64) {
+    let factor = factor.clamp(0.25, 3.0);
+    if let Some(webview) = self.webviews().get(tab_id) {
+      let _ = webview.set_zoom(factor);
+    }
+  }
+
+  /// The URL currently loaded in a tab (empty when the tab has no webview).
+  #[allow(dead_code)]
+  pub fn url_of(&self, tab_id: &str) -> Option<String> {
+    self
+      .webviews()
+      .get(tab_id)
+      .and_then(|webview| webview.url().ok())
+      .map(|url| url.to_string())
+  }
 }
 
-impl Default for TabWindowManager {
-    fn default() -> Self {
-        Self::new()
-    }
+impl Default for TabWebviewManager {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+/// Only http(s) pages may be loaded in a tab webview.
+fn is_page_url(url: &Url) -> bool {
+  matches!(url.scheme(), "http" | "https")
 }

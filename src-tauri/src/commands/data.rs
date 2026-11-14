@@ -299,19 +299,23 @@ pub fn record_download(
     db: State<'_, DbState>,
     url: String,
     filename: String,
+    destination: Option<String>,
     total_bytes: Option<i64>,
     mime_type: Option<String>,
 ) -> Result<Download, AppError> {
     let target = validate_saved_url(&url)?;
     let clean_name: String = filename.chars().take(500).collect();
     let clean_mime: Option<String> = mime_type.map(|m| m.chars().take(200).collect());
+    let clean_dest: Option<String> = destination
+        .map(|d| d.chars().take(1024).collect())
+        .filter(|d: &String| !d.is_empty());
     let conn = db.conn();
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
     conn.execute(
         "INSERT INTO downloads (id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at)
-         VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?5, 'completed', ?6, ?6)",
-        params![id, target, clean_name, clean_mime, total_bytes.unwrap_or(0), now],
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 'completed', ?7, ?7)",
+        params![id, target, clean_name, clean_dest, clean_mime, total_bytes.unwrap_or(0), now],
     )?;
     let d = conn.query_row(
         &format!("SELECT {DOWNLOAD_COLS} FROM downloads WHERE id = ?1"),
@@ -326,4 +330,12 @@ pub fn clear_downloads(db: State<'_, DbState>) -> Result<i64, AppError> {
     let conn = db.conn();
     let changed = conn.execute("DELETE FROM downloads", [])?;
     Ok(changed as i64)
+}
+
+/// Remove a single entry from the download list (the file itself is kept).
+#[tauri::command]
+pub fn remove_download(db: State<'_, DbState>, download_id: String) -> Result<bool, AppError> {
+    let conn = db.conn();
+    let changed = conn.execute("DELETE FROM downloads WHERE id = ?1", params![download_id])?;
+    Ok(changed > 0)
 }

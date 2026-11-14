@@ -32,7 +32,7 @@ export async function renderHome() {
   // Recent history
   const recentWrap = $('#home-recent');
   if (recentWrap) {
-    const recent = await api.searchHistory({ query: '', limit: 6 });
+    const recent = await api.searchHistory('', 6);
     recentWrap.innerHTML = recent.length === 0
       ? '<p class="fav-empty">Pages you visit will appear here.</p>'
       : recent.map((h) => `
@@ -67,7 +67,7 @@ export function wireHome({ onNavigate, onOpenPanel }) {
     const removeId = e.target.closest('[data-remove]')?.getAttribute('data-remove');
     if (removeId) {
       e.stopPropagation();
-      await api.deleteBookmark({ bookmark_id: removeId });
+      await api.deleteBookmark(removeId);
       await refreshBookmarks();
       await renderHome();
       toast('Favorite removed.');
@@ -96,10 +96,14 @@ export function wireHome({ onNavigate, onOpenPanel }) {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    api.recordDownload({ url: 'govind://assets/govind-welcome.txt', filename: 'govind-welcome.txt', mime_type: 'text/plain' }).catch(() => {});
+    api.recordDownload({ url: 'govind://assets/govind-welcome.txt', filename: 'govind-welcome.txt', mimeType: 'text/plain' }).catch(() => {});
     toast('Welcome kit downloading — see Downloads.');
   });
 
-  $('#btn-manage-favorites')?.addEventListener('click', () => onOpenPanel('bookmarks'));
-  $('#btn-view-all-history')?.addEventListener('click', () => onOpenPanel('history'));
+  $('#btn-manage-favorites')?.addEventListener('click', () => {
+    document.dispatchEvent(new CustomEvent('govind:open-internal', { detail: 'bookmarks' }));
+  });
+  $('#btn-view-all-history')?.addEventListener('click', () => {
+    document.dispatchEvent(new CustomEvent('govind:open-internal', { detail: 'history' }));
+  });
 }

@@ -5,6 +5,7 @@ import { displayUrl, monogram, schemeOf } from '../lib/url.js';
 import { store, bookmarkForUrl } from '../state/store.js';
 import { renderWebView } from './browser.js';
 import { renderHome } from './home.js';
+import { renderInternalPage } from './internal.js';
 
 const WORKSPACE_COLORS = ['#4A6B5D', '#E3655B', '#B45309', '#3B6EA5', '#7C5CA8', '#0F766E'];
 export { WORKSPACE_COLORS };
@@ -106,12 +107,17 @@ export function renderToolbar() {
 export function renderView() {
   const home = $('#view-home');
   const web = $('#view-web');
+  const internal = $('#view-internal');
   if (!home || !web) return;
   const showWeb = store.view === 'web';
-  home.classList.toggle('hidden', showWeb);
+  const showInternal = store.view === 'internal';
+  home.classList.toggle('hidden', showWeb || showInternal);
   web.classList.toggle('hidden', !showWeb);
+  internal?.classList.toggle('hidden', !showInternal);
   if (showWeb) {
     renderWebView();
+  } else if (showInternal) {
+    renderInternalPage();
   } else {
     renderHome();
   }

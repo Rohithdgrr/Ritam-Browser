@@ -75,7 +75,7 @@ async function render(query) {
 
   // 4) History
   try {
-    const history = await api.searchHistory({ query: q, limit: q ? 8 : 5 });
+    const history = await api.searchHistory(q, q ? 8 : 5);
     for (const h of history) {
       push('History', ICONS.history, h.title, displayUrl(h.url), () => document.dispatchEvent(new CustomEvent('govind:navigate', { detail: h.url })));
     }

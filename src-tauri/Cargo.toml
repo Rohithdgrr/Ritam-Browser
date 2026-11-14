@@ -15,10 +15,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `unstable` enables the multi-webview API (Window::add_child) used by the
+# browser core: one embedded webview per tab inside a single native window.
+tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-shell = "2"
 tauri-plugin-log = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }

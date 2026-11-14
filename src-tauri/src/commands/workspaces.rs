@@ -1,7 +1,7 @@
 use crate::db::{now_ms, DbState};
 use crate::error::AppError;
 use crate::models::{DeleteWorkspaceResult, Workspace};
-use crate::webview::TabWindowManager;
+use crate::webview::TabWebviewManager;
 use rusqlite::params;
 use tauri::{AppHandle, State};
 
@@ -83,7 +83,7 @@ pub fn rename_workspace(db: State<'_, DbState>, workspace_id: String, name: Stri
 pub fn delete_workspace(
     app: AppHandle,
     db: State<'_, DbState>,
-    manager: State<'_, TabWindowManager>,
+    manager: State<'_, TabWebviewManager>,
     workspace_id: String,
 ) -> Result<DeleteWorkspaceResult, AppError> {
     let conn = db.conn();
@@ -101,14 +101,14 @@ pub fn delete_workspace(
         return Err(AppError::NotFound("workspace not found".into()));
     }
 
-    // Close native windows for every tab in this workspace before deleting rows.
+    // Close the native webview of every tab in this workspace before deleting rows.
     let tab_ids: Vec<String> = {
         let mut stmt = conn.prepare("SELECT id FROM tabs WHERE workspace_id = ?1")?;
         let rows = stmt.query_map(params![workspace_id], |r| r.get(0))?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
     for id in &tab_ids {
-        manager.close_window(id);
+        manager.close_view(id);
     }
 
     conn.execute("DELETE FROM workspaces WHERE id = ?1", params![workspace_id])?;

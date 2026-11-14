@@ -5,9 +5,59 @@ mod models;
 mod navigation;
 mod webview;
 
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
+use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, GlobalShortcutExt, ShortcutState};
 
-use webview::TabWindowManager;
+use webview::TabWebviewManager;
+
+/// Browser shortcuts that must work even while a *page* has the keyboard focus
+/// (a child webview swallows key events, so the shell never sees them).
+/// The handler only acts while the Govind window is focused.
+const SHORTCUTS: &[(&str, &str)] = &[
+    ("Ctrl+T", "new-tab"),
+    ("Ctrl+W", "close-tab"),
+    ("Ctrl+K", "palette"),
+    ("Ctrl+L", "focus-omnibar"),
+    ("Ctrl+R", "reload"),
+    ("Ctrl+D", "bookmark"),
+    ("Ctrl+,", "settings"),
+    ("Ctrl+1", "tab-1"),
+    ("Ctrl+2", "tab-2"),
+    ("Ctrl+3", "tab-3"),
+    ("Ctrl+4", "tab-4"),
+    ("Ctrl+5", "tab-5"),
+    ("Ctrl+6", "tab-6"),
+    ("Ctrl+7", "tab-7"),
+    ("Ctrl+8", "tab-8"),
+    ("Ctrl+9", "tab-9"),
+    ("Ctrl+Tab", "next-tab"),
+    ("Ctrl+Shift+Tab", "prev-tab"),
+    ("Alt+Left", "back"),
+    ("Alt+Right", "forward"),
+];
+
+fn main_window_focused(app: &tauri::AppHandle) -> bool {
+    // The raw `Window` is used on purpose: `get_webview_window` returns `None`
+    // once the window hosts child webviews (the tab views).
+    app.get_window("main")
+        .map(|w| w.is_focused().unwrap_or(false))
+        .unwrap_or(false)
+}
+
+fn register_shortcuts(app: &tauri::AppHandle) {
+    let manager = app.global_shortcut();
+    // Idempotent: drop any previous registration before (re-)adding them.
+    let _ = manager.unregister_all();
+    for (accel, _) in SHORTCUTS {
+        if let Err(err) = manager.register(*accel) {
+            log::warn!("could not register global shortcut {accel}: {err}");
+        }
+    }
+}
+
+fn unregister_shortcuts(app: &tauri::AppHandle) {
+    let _ = app.global_shortcut().unregister_all();
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,25 +68,50 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
-        .manage(TabWindowManager::new())
+        .plugin(
+            ShortcutBuilder::new()
+                .with_handler(|app, shortcut, event| {
+                    if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    if !main_window_focused(app) {
+                        return;
+                    }
+                    let accel = shortcut.to_string();
+                    if let Some((_, action)) = SHORTCUTS
+                        .iter()
+                        .find(|(a, _)| a.eq_ignore_ascii_case(&accel))
+                    {
+                        let _ = app.emit("shortcut", *action);
+                    }
+                })
+                .build(),
+        )
+        .manage(TabWebviewManager::new())
         .setup(|app| {
             let db = db::init(app.handle())?;
             app.manage(db);
 
-            // Keep the interim tab windows glued to the main window.
             let app_handle = app.handle().clone();
-            if let Some(main) = app.get_webview_window("main") {
+            if let Some(main) = app.get_window("main") {
                 main.on_window_event(move |event| match event {
-                    WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::Focused(true) => {
-                        app_handle.state::<TabWindowManager>().apply(&app_handle);
+                    // Child webviews keep their own size, so re-apply on resize.
+                    WindowEvent::Resized(_) | WindowEvent::Focused(true) => {
+                        app_handle.state::<TabWebviewManager>().apply();
+                        register_shortcuts(&app_handle);
                     }
-                    // When the main window is closing, tear down all tab windows.
+                    WindowEvent::Focused(false) => {
+                        // Do not swallow browser shortcuts in other applications.
+                        unregister_shortcuts(&app_handle);
+                    }
+                    // When the main window is closing, tear down all tab webviews.
                     WindowEvent::CloseRequested { .. } => {
-                        app_handle.state::<TabWindowManager>().close_all();
+                        app_handle.state::<TabWebviewManager>().close_all();
                     }
                     _ => {}
                 });
             }
+            register_shortcuts(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -52,6 +127,8 @@ pub fn run() {
             commands::tabs::go_back,
             commands::tabs::go_forward,
             commands::tabs::reload_tab,
+            commands::tabs::print_tab,
+            commands::tabs::zoom_tab,
             commands::tabs::sync_tab_windows,
             // Workspaces
             commands::workspaces::create_workspace,
@@ -73,6 +150,7 @@ pub fn run() {
             commands::data::list_downloads,
             commands::data::record_download,
             commands::data::clear_downloads,
+            commands::data::remove_download,
             // Settings & privacy
             commands::settings::get_settings,
             commands::settings::set_setting,

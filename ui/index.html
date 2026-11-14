@@ -167,7 +167,7 @@
       </div>
     </section>
 
-    <!-- ── Web view (browser fallback for non-Tauri preview) ── -->
+    <!-- ── Web view (real pages render in the native webview) ── -->
     <section class="view view-web hidden" id="view-web" aria-label="Web page">
       <div class="web-host" id="web-host"></div>
       <div class="web-blocked hidden" id="web-blocked" role="alert">
@@ -184,24 +184,48 @@
       </div>
     </section>
 
+    <!-- ── Internal pages (govind://history, /downloads, /settings, /bookmarks) ── -->
+    <section class="view view-internal hidden" id="view-internal" aria-label="Internal page"></section>
+
     <!-- ── More menu ── -->
     <div class="menu hidden" id="more-menu" role="menu">
-      <button class="menu-item" id="menu-bookmark" role="menuitem">
+      <button class="menu-item" id="menu-new-tab" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5M5 9.5V21h5v-6h4v6h5V9.5"/></svg>
+        New Tab <kbd>Ctrl T</kbd>
+      </button>
+      <button class="menu-item" id="menu-history" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        History
+      </button>
+      <button class="menu-item" id="menu-downloads" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Downloads
+      </button>
+      <button class="menu-item" id="menu-bookmarks" role="menuitem">
         <svg class="icon sm" viewBox="0 0 24 24"><path d="M19 21l-7-4.5L5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-        Bookmark this page <kbd>Ctrl D</kbd>
+        Bookmarks and lists
       </button>
-      <button class="menu-item" id="menu-copy-url" role="menuitem">
-        <svg class="icon sm" viewBox="0 0 24 24"><rect width="13" height="13" x="9" y="9" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        Copy URL
+      <div class="menu-sep"></div>
+      <button class="menu-item" id="menu-zoom-in" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>
+        Zoom in
       </button>
+      <button class="menu-item" id="menu-zoom-out" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M8 11h6"/></svg>
+        Zoom out
+      </button>
+      <button class="menu-item" id="menu-zoom-reset" role="menuitem">
+        <svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+        Reset zoom
+      </button>
+      <div class="menu-sep"></div>
       <button class="menu-item" id="menu-print" role="menuitem">
         <svg class="icon sm" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
         Print… <kbd>Ctrl P</kbd>
       </button>
-      <div class="menu-sep"></div>
       <button class="menu-item" id="menu-clear-data" role="menuitem">
         <svg class="icon sm" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-        Clear browsing data…
+        Delete browsing data…
       </button>
       <button class="menu-item" id="menu-settings" role="menuitem">
         <svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M19.8 4.2l-2.1 2.1M6.3 17.7l-2.1 2.1"/></svg>
@@ -221,37 +245,6 @@
       <p style="margin-top:10px; font-size:10px; color:var(--zen-subtle);">Security state is derived from the URL scheme only — Govind does not yet inspect the actual certificate presented by the server.</p>
     </div>
 
-    <!-- ── Bookmarks panel ── -->
-    <aside class="panel hidden" id="panel-bookmarks" aria-label="Bookmarks">
-      <div class="panel-header"><h2>Bookmarks</h2>
-        <button class="icon-btn" data-close-panel aria-label="Close panel"><svg class="icon" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
-      </div>
-      <div class="panel-body">
-        <div class="search-line">
-          <svg class="icon sm" viewBox="0 0 24 24" style="color:var(--zen-subtle)"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input id="bookmarks-search" placeholder="Search bookmarks…" aria-label="Search bookmarks"/>
-        </div>
-        <div id="bookmarks-list"></div>
-      </div>
-    </aside>
-
-    <!-- ── History panel ── -->
-    <aside class="panel hidden" id="panel-history" aria-label="History">
-      <div class="panel-header"><h2>History</h2>
-        <button class="icon-btn" data-close-panel aria-label="Close panel"><svg class="icon" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
-      </div>
-      <div class="panel-body">
-        <div class="search-line">
-          <svg class="icon sm" viewBox="0 0 24 24" style="color:var(--zen-subtle)"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input id="history-search" placeholder="Search history…" aria-label="Search history"/>
-        </div>
-        <div id="history-list"></div>
-      </div>
-      <div class="panel-footer">
-        <button class="btn-secondary" id="history-clear-all" style="color:var(--zen-danger); border-color: color-mix(in srgb, var(--zen-danger) 40%, transparent);">Clear all history</button>
-      </div>
-    </aside>
-
     <!-- ── Scratchpad panel ── -->
     <aside class="panel hidden" id="panel-scratchpad" aria-label="Scratchpad">
       <div class="panel-header"><h2>Scratchpad</h2>
@@ -265,112 +258,6 @@
         <div id="notes-list"></div>
       </div>
     </aside>
-
-    <!-- ── Downloads panel ── -->
-    <aside class="panel hidden" id="panel-downloads" aria-label="Downloads">
-      <div class="panel-header"><h2>Downloads</h2>
-        <button class="icon-btn" data-close-panel aria-label="Close panel"><svg class="icon" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
-      </div>
-      <div class="panel-body">
-        <div id="downloads-list"></div>
-      </div>
-      <div class="panel-footer">
-        <button class="btn-secondary" id="downloads-clear">Clear list</button>
-        <span style="font-size:10px; color:var(--zen-subtle); margin-left:auto; max-width:180px; line-height:1.4;">Stored locally. Files go to your OS downloads folder.</span>
-      </div>
-    </aside>
-
-    <!-- ── Settings modal ── -->
-    <div class="modal-backdrop hidden" id="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
-      <div class="modal">
-        <nav class="settings-nav" aria-label="Settings sections">
-          <h2>Settings</h2>
-          <button class="active" data-settings-tab="general"><svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M4 12h4M16 12h4M12 4v4M12 16v4"/></svg>General</button>
-          <button data-settings-tab="appearance"><svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" opacity=".85"/></svg>Appearance</button>
-          <button data-settings-tab="privacy"><svg class="icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Privacy &amp; Data</button>
-          <button data-settings-tab="permissions"><svg class="icon sm" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Permissions</button>
-          <button data-settings-tab="about"><svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>About</button>
-        </nav>
-        <div class="settings-main">
-
-          <div class="settings-pane" data-pane="general">
-            <h3>General</h3>
-            <p class="settings-desc">Startup behavior and search.</p>
-            <div class="setting-row">
-              <div><div class="s-title">Restore previous session</div><div class="s-desc">Reopen the tabs and workspace you had open when you last closed Govind.</div></div>
-              <label class="switch"><input type="checkbox" id="setting-restore-session"/><span class="track"></span><span class="thumb"></span></label>
-            </div>
-            <div class="setting-row">
-              <div><div class="s-title">Default search engine</div><div class="s-desc">Used when the address bar contains a query instead of a URL.</div></div>
-              <select id="setting-search-engine"></select>
-            </div>
-            <div class="setting-row">
-              <div><div class="s-title">Always use HTTPS</div><div class="s-desc">Upgrade http:// navigations to https:// when possible. Pages that fail over HTTPS are left untouched (no silent downgrade).</div></div>
-              <label class="switch"><input type="checkbox" id="setting-https-first" checked/><span class="track"></span><span class="thumb"></span></label>
-            </div>
-          </div>
-
-          <div class="settings-pane hidden" data-pane="appearance">
-            <h3>Appearance</h3>
-            <p class="settings-desc">Zen theme. Dark mode is a foundation, not a full design yet.</p>
-            <div class="setting-row">
-              <div><div class="s-title">Theme</div><div class="s-desc">Warm paper (Zen Light) or a calm dark palette (Zen Dark).</div></div>
-              <select id="setting-theme">
-                <option value="zen-light">Zen Light (paper)</option>
-                <option value="zen-dark">Zen Dark</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="settings-pane hidden" data-pane="privacy">
-            <h3>Privacy &amp; Data</h3>
-            <p class="settings-desc">Everything lives on this device. Govind ships with zero telemetry and no accounts.</p>
-            <div class="setting-row">
-              <div><div class="s-title">Telemetry &amp; crash reporting</div><div class="s-desc">Disabled. Govind sends no analytics anywhere. There is nothing to turn on yet.</div></div>
-              <span class="chip selected" aria-disabled="true">Off, always</span>
-            </div>
-            <div class="danger-zone">
-              <h4>Clear browsing data</h4>
-              <div id="clear-data-options" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-                <button class="chip selected" data-clear-category="history" type="button">History</button>
-                <button class="chip selected" data-clear-category="downloads" type="button">Download list</button>
-                <button class="chip selected" data-clear-category="site_permissions" type="button">Site permissions</button>
-              </div>
-              <button class="btn-danger" id="btn-clear-browsing-data" type="button">Clear selected data</button>
-              <p style="font-size:10px; color:var(--zen-subtle); margin-top:10px; line-height:1.5;">Cookie / cache clearing requires native webview profile controls and arrives with the engine decision (see docs/ENGINE_SPIKE.md). Bookmarks and notes are never cleared here.</p>
-            </div>
-          </div>
-
-          <div class="settings-pane hidden" data-pane="permissions">
-            <h3>Permissions</h3>
-            <p class="settings-desc">Per-origin site permission decisions stored on this device.</p>
-            <div id="permissions-list"></div>
-            <div class="perm-row" style="border-bottom:none; margin-top:10px;">
-              <button class="btn-secondary" id="permissions-clear-all" type="button">Reset all site permissions</button>
-            </div>
-          </div>
-
-          <div class="settings-pane hidden" data-pane="about">
-            <h3>About</h3>
-            <p class="settings-desc">Govind Browser — a fast browser that shows you how the internet works.</p>
-            <div class="about-hero">
-              <div class="about-logo">G</div>
-              <div style="font-family:var(--font-serif); font-size:22px;">Govind Browser</div>
-              <div class="about-ver" id="about-version">v0.1.0 · milestone 1</div>
-            </div>
-            <table class="about-table">
-              <tbody id="about-table-body">
-                <tr><td>Engine</td><td id="about-engine">System webview (Tauri 2)</td></tr>
-                <tr><td>UI</td><td>HTML · CSS · vanilla JS (no build step)</td></tr>
-                <tr><td>Data</td><td>SQLite at app-data dir, local-first</td></tr>
-                <tr><td>License</td><td>MIT</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-        </div>
-      </div>
-    </div>
 
     <!-- ── Command palette ── -->
     <div class="palette-backdrop hidden" id="command-palette" role="dialog" aria-modal="true" aria-label="Command palette">

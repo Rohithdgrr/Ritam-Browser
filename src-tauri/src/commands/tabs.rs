@@ -2,9 +2,9 @@ use crate::db::{now_ms, DbState};
 use crate::error::AppError;
 use crate::models::{CloseTabResult, Tab};
 use crate::navigation::{validate_navigation_url, HOME_URL};
-use crate::webview::{LayoutState, TabWindowManager};
+use crate::webview::{LayoutState, TabWebviewManager};
 use rusqlite::params;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 fn row_to_tab(row: &rusqlite::Row) -> rusqlite::Result<Tab> {
     Ok(Tab {
@@ -76,7 +76,8 @@ pub fn create_tab(
             "SELECT value FROM settings WHERE key = 'active_workspace_id'",
             [],
             |r| r.get(0),
-        ).or_else(|_| {
+        )
+        .or_else(|_| {
             conn.query_row("SELECT id FROM workspaces ORDER BY sort_order LIMIT 1", [], |r| r.get(0))
         })?,
     };
@@ -127,9 +128,9 @@ pub fn list_tabs(db: State<'_, DbState>, workspace_id: Option<String>) -> Result
 
 #[tauri::command]
 pub fn activate_tab(
-    app: AppHandle,
+    _app: AppHandle,
     db: State<'_, DbState>,
-    manager: State<'_, TabWindowManager>,
+    manager: State<'_, TabWebviewManager>,
     tab_id: String,
 ) -> Result<Tab, AppError> {
     let conn = db.conn();
@@ -146,22 +147,22 @@ pub fn activate_tab(
     }
     let tab = get_tab(&conn, &tab_id)?;
     drop(conn);
-    manager.apply(&app);
+    manager.apply();
     Ok(tab)
 }
 
 #[tauri::command]
 pub fn close_tab(
-    app: AppHandle,
+    _app: AppHandle,
     db: State<'_, DbState>,
-    manager: State<'_, TabWindowManager>,
+    manager: State<'_, TabWebviewManager>,
     tab_id: String,
 ) -> Result<CloseTabResult, AppError> {
     let conn = db.conn();
     let tab = get_tab(&conn, &tab_id)?;
     let workspace_id = tab.workspace_id.clone();
 
-    manager.close_window(&tab_id);
+    manager.close_view(&tab_id);
     conn.execute("DELETE FROM tabs WHERE id = ?1", params![tab_id])?;
 
     // Pick the next tab to activate: most recently used in this workspace…
@@ -194,21 +195,25 @@ pub fn close_tab(
     }
     let active_tab_id = active;
     drop(conn);
-    manager.apply(&app);
+    manager.apply();
     Ok(CloseTabResult { closed_id: tab_id, active_tab_id })
 }
 
+/// Navigate a tab to a URL.
+///
+/// `async` on purpose: creating a webview must not happen on the UI thread
+/// (WebView2 deadlocks on Windows).
 #[tauri::command]
-pub fn navigate_tab(
+pub async fn navigate_tab(
     app: AppHandle,
-    db: State<'_, DbState>,
-    manager: State<'_, TabWindowManager>,
     tab_id: String,
     url: String,
 ) -> Result<Tab, AppError> {
     let target = validate_navigation_url(&url)?;
-    manager.navigate(&app, &tab_id, &target)?;
+    let manager = app.state::<TabWebviewManager>();
+    manager.navigate(&app, &tab_id, &target).await?;
 
+    let db = app.state::<DbState>();
     let conn = db.conn();
     let title = title_from_url(&target);
     conn.execute(
@@ -275,30 +280,47 @@ pub fn reorder_tab(
 }
 
 #[tauri::command]
-pub fn go_back(manager: State<'_, TabWindowManager>, tab_id: Option<String>) {
+pub fn go_back(manager: State<'_, TabWebviewManager>, tab_id: Option<String>) {
     if let Some(id) = tab_id {
         manager.eval_tab(&id, "history.back()");
     }
 }
 
 #[tauri::command]
-pub fn go_forward(manager: State<'_, TabWindowManager>, tab_id: Option<String>) {
+pub fn go_forward(manager: State<'_, TabWebviewManager>, tab_id: Option<String>) {
     if let Some(id) = tab_id {
         manager.eval_tab(&id, "history.forward()");
     }
 }
 
 #[tauri::command]
-pub fn reload_tab(manager: State<'_, TabWindowManager>, tab_id: Option<String>) {
+pub fn reload_tab(manager: State<'_, TabWebviewManager>, tab_id: Option<String>) {
     if let Some(id) = tab_id {
-        manager.eval_tab(&id, "location.reload()");
+        manager.reload_tab(&id);
     }
 }
 
+/// Print the page of a tab (not the shell chrome).
+#[tauri::command]
+pub fn print_tab(manager: State<'_, TabWebviewManager>, tab_id: Option<String>) {
+    if let Some(id) = tab_id {
+        manager.print_tab(&id);
+    }
+}
+
+/// Set the zoom factor of a tab's page (1.0 = 100%).
+#[tauri::command]
+pub fn zoom_tab(manager: State<'_, TabWebviewManager>, tab_id: Option<String>, factor: f64) {
+    if let Some(id) = tab_id {
+        manager.set_zoom(&id, factor);
+    }
+}
+
+/// Keep the native webviews aligned with the shell layout.
 #[tauri::command]
 pub fn sync_tab_windows(
     app: AppHandle,
-    manager: State<'_, TabWindowManager>,
+    manager: State<'_, TabWebviewManager>,
     active_tab_id: Option<String>,
     visible: bool,
     x: f64,

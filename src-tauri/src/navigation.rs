@@ -6,17 +6,46 @@ use crate::error::AppError;
 
 pub const HOME_URL: &str = "govind://home";
 
-/// Validate a URL for *navigation*. Allows http(s), the internal home page, and about:blank.
+/// Internal pages rendered by the shell itself (never loaded into a webview).
+/// Mirrors the chrome:// URLs users expect: history, downloads, bookmarks, settings.
+pub const INTERNAL_ROUTES: &[&str] = &["home", "history", "downloads", "bookmarks", "settings"];
+
+/// Canonical internal URL for a route, e.g. `govind://history`.
+pub fn internal_url(route: &str) -> String {
+    format!("govind://{route}")
+}
+
+/// The route part of an internal URL (`govind://history` → `history`), if any.
+pub fn internal_route(url: &str) -> Option<String> {
+    let lower = url.trim().to_ascii_lowercase();
+    let route = lower.strip_prefix("govind://")?;
+    let route = route.trim_end_matches('/');
+    if INTERNAL_ROUTES.contains(&route) {
+        Some(route.to_string())
+    } else {
+        None
+    }
+}
+
+/// Is this an internal shell page?
+pub fn is_internal_url(url: &str) -> bool {
+    internal_route(url).is_some()
+}
+
+/// Validate a URL for *navigation*. Allows http(s), the internal pages and about:blank.
 pub fn validate_navigation_url(raw: &str) -> Result<String, AppError> {
     let input = raw.trim();
     if input.is_empty() || input.len() > 2048 {
         return Err(AppError::InvalidInput("url is empty or too long".into()));
     }
-    if input == HOME_URL {
-        return Ok(HOME_URL.to_string());
-    }
     if input.eq_ignore_ascii_case("about:blank") {
         return Ok("about:blank".to_string());
+    }
+    if input.to_ascii_lowercase().starts_with("govind://") {
+        return match internal_route(input) {
+            Some(route) => Ok(internal_url(&route)),
+            None => Err(AppError::InvalidInput("unknown internal page".into())),
+        };
     }
     validate_http_url(input).map(str::to_string)
 }
@@ -88,6 +117,22 @@ mod tests {
         assert!(validate_saved_url("govind://assets/govind-welcome.txt").is_ok());
         assert!(validate_saved_url("https://example.com").is_ok());
         assert!(validate_saved_url("javascript:x").is_err());
+    }
+
+    #[test]
+    fn internal_pages_are_valid_navigation_targets() {
+        assert_eq!(validate_navigation_url("govind://home").unwrap(), "govind://home");
+        assert_eq!(validate_navigation_url("govind://history").unwrap(), "govind://history");
+        assert_eq!(validate_navigation_url("govind://downloads").unwrap(), "govind://downloads");
+        assert_eq!(validate_navigation_url("govind://settings").unwrap(), "govind://settings");
+        assert_eq!(validate_navigation_url("govind://bookmarks").unwrap(), "govind://bookmarks");
+        assert_eq!(validate_navigation_url("GOVIND://History/").unwrap(), "govind://history");
+    }
+
+    #[test]
+    fn unknown_internal_pages_are_rejected() {
+        assert!(validate_navigation_url("govind://admin").is_err());
+        assert!(validate_navigation_url("govind://assets/govind-welcome.txt").is_err());
     }
 
     #[test]
