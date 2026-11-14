@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Least-privilege capabilities for the trusted main window only. Remote web content lives in separate windows and gets nothing.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-outer-position",
+    "core:window:allow-scale-factor",
+    "shell:allow-open",
+    "log:default"
+  ]
+}

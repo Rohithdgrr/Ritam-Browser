@@ -1,0 +1,17 @@
+{
+  "name": "govind-browser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Govind Browser — a fast, calm, local-first browser. Tauri 2 + Rust shell, plain HTML/CSS/JS UI.",
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/serve.mjs",
+    "test": "node --test tests/",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  },
+  "license": "MIT"
+}

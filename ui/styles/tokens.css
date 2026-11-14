@@ -1,0 +1,63 @@
+/* Govind Browser — Zen design tokens (CSS variables)
+   Theme direction: warm paper / sage (kept from arc_zen_minimalist_browser.html).
+   Sunrise Fusion tokens are documented in PRD §3.3 and can be swapped in here later. */
+
+:root,
+[data-theme="zen-light"] {
+  --zen-bg: #faf9f5;
+  --zen-panel: #f4f4f0;
+  --zen-surface: #efeeea;
+  --zen-card: #ffffff;
+  --zen-border: #e8e7e1;
+  --zen-border-dark: #d6d4cb;
+  --zen-text: #1e2022;
+  --zen-muted: #717579;
+  --zen-subtle: #8c9094;
+  --zen-sage: #4a6b5d;
+  --zen-sage-dark: #325346;
+  --zen-sage-light: #eaf0ec;
+  --zen-accent: #e3655b;
+  --zen-accent-soft: #fbe9e7;
+  --zen-success: #3d7a5a;
+  --zen-warning: #b45309;
+  --zen-danger: #dc2626;
+
+  --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.03), 0 4px 12px rgba(0, 0, 0, 0.02);
+  --shadow-float: 0 8px 30px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-modal: 0 20px 50px rgba(25, 28, 31, 0.16);
+
+  --font-ui: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-serif: "Newsreader", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --titlebar-h: 34px;
+  --toolbar-h: 46px;
+  --sidebar-w: 264px;
+}
+
+[data-theme="zen-dark"] {
+  --zen-bg: #17181a;
+  --zen-panel: #1f2023;
+  --zen-surface: #26272b;
+  --zen-card: #202124;
+  --zen-border: #2e2f34;
+  --zen-border-dark: #3d3e45;
+  --zen-text: #e8e6e1;
+  --zen-muted: #a3a6ab;
+  --zen-subtle: #7d8086;
+  --zen-sage: #7ba793;
+  --zen-sage-dark: #a8c8b6;
+  --zen-sage-light: #24382f;
+  --zen-accent: #ef8378;
+  --zen-accent-soft: #3a2422;
+  --zen-success: #6fbf94;
+  --zen-warning: #e3a857;
+  --zen-danger: #f27c7c;
+
+  --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-float: 0 8px 30px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-modal: 0 20px 50px rgba(0, 0, 0, 0.55);
+}

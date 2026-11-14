@@ -1,0 +1,148 @@
+use crate::db::{now_ms, DbState};
+use crate::error::AppError;
+use crate::models::{DeleteWorkspaceResult, Workspace};
+use crate::webview::TabWindowManager;
+use rusqlite::params;
+use tauri::{AppHandle, State};
+
+fn row_to_workspace(row: &rusqlite::Row) -> rusqlite::Result<Workspace> {
+    Ok(Workspace {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        color: row.get(2)?,
+        sort_order: row.get(3)?,
+        created_at: row.get(4)?,
+    })
+}
+
+const WS_COLS: &str = "id, name, color, sort_order, created_at";
+
+fn clean_name(raw: &str) -> Result<String, AppError> {
+    let name: String = raw.trim().chars().take(80).collect();
+    if name.is_empty() {
+        return Err(AppError::InvalidInput("workspace name is required".into()));
+    }
+    Ok(name)
+}
+
+fn clean_color(raw: Option<String>) -> String {
+    match raw {
+        Some(c) if c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|c| c.is_ascii_hexdigit()) => c,
+        _ => "#4A6B5D".to_string(),
+    }
+}
+
+#[tauri::command]
+pub fn create_workspace(db: State<'_, DbState>, name: String, color: Option<String>) -> Result<Workspace, AppError> {
+    let name = clean_name(&name)?;
+    let color = clean_color(color);
+    let conn = db.conn();
+    let sort_order: i64 =
+        conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0))?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = now_ms();
+    conn.execute(
+        "INSERT INTO workspaces (id, name, color, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, name, color, sort_order, now],
+    )?;
+    Ok(Workspace { id, name, color, sort_order, created_at: now })
+}
+
+#[tauri::command]
+pub fn list_workspaces(db: State<'_, DbState>) -> Result<Vec<Workspace>, AppError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(&format!("SELECT {WS_COLS} FROM workspaces ORDER BY sort_order ASC"))?;
+    let rows = stmt.query_map([], row_to_workspace)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn rename_workspace(db: State<'_, DbState>, workspace_id: String, name: String) -> Result<Workspace, AppError> {
+    let name = clean_name(&name)?;
+    let conn = db.conn();
+    let changed = conn.execute(
+        "UPDATE workspaces SET name = ?1 WHERE id = ?2",
+        params![name, workspace_id],
+    )?;
+    if changed == 0 {
+        return Err(AppError::NotFound("workspace not found".into()));
+    }
+    let ws = conn.query_row(
+        &format!("SELECT {WS_COLS} FROM workspaces WHERE id = ?1"),
+        params![workspace_id],
+        row_to_workspace,
+    )?;
+    Ok(ws)
+}
+
+#[tauri::command]
+pub fn delete_workspace(
+    app: AppHandle,
+    db: State<'_, DbState>,
+    manager: State<'_, TabWindowManager>,
+    workspace_id: String,
+) -> Result<DeleteWorkspaceResult, AppError> {
+    let conn = db.conn();
+
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0))?;
+    if count <= 1 {
+        return Err(AppError::InvalidInput("cannot delete the last workspace".into()));
+    }
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = ?1)",
+        params![workspace_id],
+        |r| r.get(0),
+    )?;
+    if !exists {
+        return Err(AppError::NotFound("workspace not found".into()));
+    }
+
+    // Close native windows for every tab in this workspace before deleting rows.
+    let tab_ids: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT id FROM tabs WHERE workspace_id = ?1")?;
+        let rows = stmt.query_map(params![workspace_id], |r| r.get(0))?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    for id in &tab_ids {
+        manager.close_window(id);
+    }
+
+    conn.execute("DELETE FROM workspaces WHERE id = ?1", params![workspace_id])?;
+
+    let fallback: String = conn.query_row(
+        "SELECT id FROM workspaces ORDER BY sort_order ASC LIMIT 1",
+        [],
+        |r| r.get(0),
+    )?;
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_workspace_id', ?1)",
+        params![fallback],
+    )?;
+
+    let result = DeleteWorkspaceResult { deleted_id: workspace_id, active_workspace_id: fallback };
+    drop(conn);
+    let _ = app; // keep handle for symmetry with other commands
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn set_active_workspace(db: State<'_, DbState>, workspace_id: String) -> Result<serde_json::Value, AppError> {
+    let conn = db.conn();
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = ?1)",
+        params![workspace_id],
+        |r| r.get(0),
+    )?;
+    if !exists {
+        return Err(AppError::NotFound("workspace not found".into()));
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_workspace_id', ?1)",
+        params![workspace_id],
+    )?;
+    Ok(serde_json::json!({ "active_workspace_id": workspace_id }))
+}

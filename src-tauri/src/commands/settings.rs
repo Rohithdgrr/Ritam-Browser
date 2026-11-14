@@ -1,0 +1,175 @@
+//! Settings, privacy (clear browsing data / site permissions) and app info.
+
+use crate::db::{now_ms, DbState};
+use crate::error::AppError;
+use crate::models::{AppInfo, ClearDataResult, SitePermission};
+use rusqlite::params;
+use std::collections::HashMap;
+use tauri::State;
+
+const KNOWN_KEYS: &[&str] = &[
+    "search_engine",
+    "restore_session",
+    "https_first",
+    "theme",
+    "active_workspace_id",
+];
+const SEARCH_ENGINES: &[&str] = &["duckduckgo", "google", "bing", "startpage"];
+const THEMES: &[&str] = &["zen-light", "zen-dark"];
+
+const DEFAULTS: &[(&str, &str)] = &[
+    ("search_engine", "duckduckgo"),
+    ("restore_session", "false"),
+    ("https_first", "true"),
+    ("theme", "zen-light"),
+];
+
+#[tauri::command]
+pub fn get_settings(db: State<'_, DbState>) -> Result<HashMap<String, String>, AppError> {
+    let conn = db.conn();
+    let mut map: HashMap<String, String> =
+        DEFAULTS.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (k, v) = row?;
+        map.insert(k, v);
+    }
+    Ok(map)
+}
+
+#[tauri::command]
+pub fn set_setting(db: State<'_, DbState>, key: String, value: String) -> Result<serde_json::Value, AppError> {
+    if !KNOWN_KEYS.contains(&key.as_str()) {
+        return Err(AppError::InvalidInput(format!("unknown setting key: {key}")));
+    }
+    let valid = match key.as_str() {
+        "search_engine" => SEARCH_ENGINES.contains(&value.as_str()),
+        "theme" => THEMES.contains(&value.as_str()),
+        "restore_session" | "https_first" => value == "true" || value == "false",
+        "active_workspace_id" => value.len() <= 128 && !value.contains(char::is_whitespace),
+        _ => false,
+    };
+    if !valid {
+        return Err(AppError::InvalidInput(format!("invalid value for setting: {key}")));
+    }
+    let conn = db.conn();
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![key, value],
+    )?;
+    Ok(serde_json::json!({ "key": key, "value": value }))
+}
+
+#[tauri::command]
+pub fn clear_browsing_data(
+    db: State<'_, DbState>,
+    categories: Vec<String>,
+) -> Result<ClearDataResult, AppError> {
+    let conn = db.conn();
+    let mut result = ClearDataResult { history: 0, downloads: 0, site_permissions: 0 };
+    for category in categories {
+        match category.as_str() {
+            "history" => result.history = conn.execute("DELETE FROM history", [])? as i64,
+            "downloads" => result.downloads = conn.execute("DELETE FROM downloads", [])? as i64,
+            "site_permissions" => {
+                result.site_permissions = conn.execute("DELETE FROM site_permissions", [])? as i64
+            }
+            // Bookmarks and notes are intentionally never cleared here.
+            _ => {}
+        }
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn list_site_permissions(db: State<'_, DbState>) -> Result<Vec<SitePermission>, AppError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, origin, permission, decision, updated_at FROM site_permissions ORDER BY origin ASC",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(SitePermission {
+            id: r.get(0)?,
+            origin: r.get(1)?,
+            permission: r.get(2)?,
+            decision: r.get(3)?,
+            updated_at: r.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn set_site_permission(
+    db: State<'_, DbState>,
+    origin: String,
+    permission: String,
+    decision: String,
+) -> Result<SitePermission, AppError> {
+    let clean_origin: String = origin.trim().chars().take(200).collect();
+    let lower = clean_origin.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err(AppError::InvalidInput("origin must start with http:// or https://".into()));
+    }
+    let clean_permission: String = permission.trim().to_lowercase().chars().take(64).collect();
+    if clean_permission.is_empty() {
+        return Err(AppError::InvalidInput("permission is required".into()));
+    }
+    let clean_decision = decision.trim().to_lowercase();
+    if !matches!(clean_decision.as_str(), "ask" | "allow" | "deny") {
+        return Err(AppError::InvalidInput("decision must be ask, allow or deny".into()));
+    }
+
+    let conn = db.conn();
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = now_ms();
+    conn.execute(
+        "INSERT INTO site_permissions (id, origin, permission, decision, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(origin, permission) DO UPDATE SET
+           decision = excluded.decision,
+           updated_at = excluded.updated_at",
+        params![id, clean_origin, clean_permission, clean_decision, now],
+    )?;
+    let perm = conn.query_row(
+        "SELECT id, origin, permission, decision, updated_at FROM site_permissions WHERE origin = ?1 AND permission = ?2",
+        params![clean_origin, clean_permission],
+        |r| {
+            Ok(SitePermission {
+                id: r.get(0)?,
+                origin: r.get(1)?,
+                permission: r.get(2)?,
+                decision: r.get(3)?,
+                updated_at: r.get(4)?,
+            })
+        },
+    )?;
+    Ok(perm)
+}
+
+#[tauri::command]
+pub fn clear_site_permissions(db: State<'_, DbState>, origin: Option<String>) -> Result<i64, AppError> {
+    let conn = db.conn();
+    let changed = match origin {
+        Some(o) => conn.execute("DELETE FROM site_permissions WHERE origin = ?1", params![o])?,
+        None => conn.execute("DELETE FROM site_permissions", [])?,
+    };
+    Ok(changed as i64)
+}
+
+#[tauri::command]
+pub fn get_app_info() -> AppInfo {
+    AppInfo {
+        name: "Govind Browser".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        milestone: "Milestone 1 — Browser shell".to_string(),
+        engine: "System WebView2 via Tauri 2 (interim window-embedded WebViews)".to_string(),
+        storage: "SQLite at the OS app-data directory".to_string(),
+        telemetry: "disabled".to_string(),
+    }
+}
