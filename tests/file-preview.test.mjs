@@ -16,6 +16,7 @@ test('formats are detected from the file extension', () => {
   assert.equal(viewerKindFor('notes.md'), 'markdown');
   assert.equal(viewerKindFor('report.docx'), 'docx');
   assert.equal(viewerKindFor('sheet.xlsx'), 'xlsx');
+  assert.equal(viewerKindFor('pitch.pptx'), 'pptx');
   assert.equal(viewerKindFor('data.json'), 'json');
   assert.equal(viewerKindFor('README'), null);
   assert.equal(viewerKindFor('setup.exe'), null);

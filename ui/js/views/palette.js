@@ -64,11 +64,24 @@ async function render(query) {
     }
   }
 
-  // 2) Open tabs
-  for (const tab of store.tabs) {
-    if (!q || tab.title.toLowerCase().includes(q) || tab.url.toLowerCase().includes(q)) {
-      push('Open Tabs', ICONS.tab, tab.title, 'Switch to tab', () => document.dispatchEvent(new CustomEvent('govind:activate-tab', { detail: tab.id })));
-    }
+  // 2) Open tabs — every workspace, matched by title, URL, workspace or group.
+  let allTabs = [];
+  try {
+    allTabs = await api.listTabs();
+  } catch {
+    allTabs = store.tabs;
+  }
+  const seenTabs = new Set();
+  const workspaceNames = new Map(store.workspaces.map((workspace) => [workspace.id, workspace.name]));
+  for (const tab of [...store.tabs, ...allTabs]) {
+    if (seenTabs.has(tab.id) || tab.is_private) continue;
+    seenTabs.add(tab.id);
+    const workspace = workspaceNames.get(tab.workspace_id) ?? 'Workspace';
+    const group = tab.group_name ?? '';
+    const haystack = `${tab.title ?? ''} ${tab.url ?? ''} ${workspace} ${group}`.toLowerCase();
+    if (q && !haystack.includes(q)) continue;
+    const hint = [workspace, group].filter(Boolean).join(' \u00b7 ');
+    push('Open Tabs', ICONS.tab, tab.title || tab.url, hint, () => document.dispatchEvent(new CustomEvent('govind:activate-tab', { detail: tab.id })));
   }
 
   // 3) Bookmarks

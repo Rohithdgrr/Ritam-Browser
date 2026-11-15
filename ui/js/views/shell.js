@@ -2,7 +2,8 @@
 
 import { $, $$, escapeHtml } from '../lib/dom.js';
 import { displayUrl, monogram, schemeOf, SEARCH_ENGINES } from '../lib/url.js';
-import { store, bookmarkForUrl, tabGroupKey } from '../state/store.js';
+import { store, bookmarkForUrl, tabGroupKey, closeTab, setTabGroup } from '../state/store.js';
+import { tabGroupSuggestions, duplicateTabGroups, siteKey, isAiTab } from '../lib/tabs.js';
 import { renderWebView } from './browser.js';
 import { renderHome } from './home.js';
 import { renderInternalPage } from './internal.js';
@@ -15,6 +16,7 @@ export async function renderAll() {
   renderWorkspaces();
   renderSidebarFavorites();
   renderTabs();
+  renderTabSuggestions();
   renderToolbar();
   renderView();
 }
@@ -101,8 +103,11 @@ export function renderTabs() {
     if (key) headerGroups.add(key);
     if (collapsed) return groupHeader;
     const isActive = tab.id === store.activeTabId;
-    const title = tab.title || 'New Tab';
-    const favicon = tab.is_private
+    const fixed = isAiTab(tab);
+    const title = tab.title || (fixed ? 'AI Workspace' : 'New Tab');
+    const favicon = fixed
+      ? `<span class="tab-favicon ai-tab-icon" aria-label="AI Workspace"><svg viewBox="0 0 24 24"><path d="M12 2.5l1.9 6.3 6.3 1.9-6.3 1.9L12 19l-1.9-6.4L3.8 10.7l6.3-1.9z"/><path d="M19 16.5l.7 2.3 2.3.7-2.3.7L19 22.5l-.7-2.3-2.3-.7 2.3-.7z"/></svg></span>`
+      : tab.is_private
       ? `<span class="tab-favicon private-tab-icon" aria-label="Private tab"><svg viewBox="0 0 24 24"><path d="M3.5 10.5c.6-3.1 3.7-5 8.5-5s7.9 1.9 8.5 5h-17Z"/><path d="M2.5 11.5h19M4 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM13 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM11 14h2"/></svg></span>`
       : tab.favicon_url
         ? `<span class="tab-favicon">${escapeHtml(monogram(tab.url))}<img class="tab-favicon-img" src="${escapeHtml(tab.favicon_url)}" alt="" width="16" height="16"/></span>`
@@ -114,17 +119,19 @@ export function renderTabs() {
         </button>`
       : '';
     const row = `
-      <div class="tab-item ${isActive ? 'active' : ''} ${tab.is_pinned ? 'pinned' : ''} ${tab.is_private ? 'private' : ''}" role="tab" aria-selected="${isActive}" tabindex="0" data-tab="${escapeHtml(tab.id)}" title="${tab.is_private ? 'Private tab — ' : ''}${escapeHtml(tab.url)}">
+      <div class="tab-item ${isActive ? 'active' : ''} ${tab.is_pinned ? 'pinned' : ''} ${tab.is_private ? 'private' : ''} ${fixed ? 'fixed' : ''} ${store.sleepingTabs.has(tab.id) ? 'sleeping' : ''} ${store.splitTabId === tab.id ? 'split' : ''}" role="tab" aria-selected="${isActive}" tabindex="0" data-tab="${escapeHtml(tab.id)}" title="${tab.is_private ? 'Private tab — ' : ''}${escapeHtml(tab.url)}">
         ${favicon}
         <span class="tab-title">${escapeHtml(title)}</span>
+        ${store.splitTabId === tab.id ? '<span class="tab-badge split" title="Shown in the split pane">\u25eb</span>' : ''}
+        ${store.sleepingTabs.has(tab.id) ? '<span class="tab-badge sleeping" title="Sleeping \u2014 switch to this tab to reload it">z</span>' : ''}
         ${tab.group_name ? `<span class="tab-group-label">${escapeHtml(tab.group_name)}</span>` : ''}
         ${audioButton}
-        ${tab.is_private ? '' : `<button class="tab-pin ${tab.is_pinned ? 'active' : ''}" data-pin-tab="${escapeHtml(tab.id)}" title="${tab.is_pinned ? 'Unpin tab' : 'Pin tab'}" aria-pressed="${tab.is_pinned ? 'true' : 'false'}" aria-label="Pin or unpin tab">
+        ${tab.is_private || fixed ? '' : `<button class="tab-pin ${tab.is_pinned ? 'active' : ''}" data-pin-tab="${escapeHtml(tab.id)}" title="${tab.is_pinned ? 'Unpin tab' : 'Pin tab'}" aria-pressed="${tab.is_pinned ? 'true' : 'false'}" aria-label="Pin or unpin tab">
           <svg class="icon sm" viewBox="0 0 24 24" ${tab.is_pinned ? 'fill="currentColor"' : ''}><path d="M12 17v5M9 3h6l1 7 3 3v2H5v-2l3-3z"/></svg>
         </button>`}
-        <button class="tab-close" data-close-tab="${escapeHtml(tab.id)}" title="Close tab (Ctrl+W)" aria-label="Close tab">
+        ${fixed ? '<span class="tab-fixed-label" title="Fixed AI Workspace tab">fixed</span>' : `<button class="tab-close" data-close-tab="${escapeHtml(tab.id)}" title="Close tab (Ctrl+W)" aria-label="Close tab">
           <svg class="icon sm" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
-        </button>
+        </button>`}
       </div>`;
     return groupHeader + row;
     }).join('');
@@ -135,6 +142,68 @@ export function renderTabs() {
     + (privates.length
       ? `<div class="tab-section-label">Private</div>${renderSection(privates)}`
       : '');
+}
+
+// ── Suggestions (smart groups, duplicate tabs) ────────────────────────
+export function renderTabSuggestions() {
+  const host = $('#tab-suggestions');
+  if (!host) return;
+  const items = [];
+  for (const suggestion of tabGroupSuggestions(store.tabs)) {
+    const key = `group:${suggestion.site}`;
+    if (store.dismissedSuggestions.has(key)) continue;
+    items.push({
+      key,
+      label: `Group ${suggestion.count} ${suggestion.site} tabs`,
+      action: 'Group',
+    });
+  }
+  const duplicates = duplicateTabGroups(store.tabs);
+  if (duplicates.length) {
+    const key = `dupes:${duplicates.map((group) => group[0].url).join('|')}`;
+    if (!store.dismissedSuggestions.has(key)) {
+      const extra = duplicates.reduce((total, group) => total + group.length - 1, 0);
+      items.push({ key, label: `Close ${extra} duplicate tab${extra === 1 ? '' : 's'}`, action: 'Close' });
+    }
+  }
+  if (items.length === 0) {
+    host.innerHTML = '';
+    host.classList.add('hidden');
+    return;
+  }
+  host.classList.remove('hidden');
+  host.innerHTML = items.map((item) => `
+    <div class="tab-suggestion">
+      <span class="tab-suggestion-text">${escapeHtml(item.label)}</span>
+      <button class="tab-suggestion-go" data-suggestion-run="${escapeHtml(item.key)}">${item.action}</button>
+      <button class="tab-suggestion-dismiss" data-suggestion-dismiss="${escapeHtml(item.key)}" title="Dismiss" aria-label="Dismiss suggestion">&times;</button>
+    </div>`).join('');
+
+  host.onclick = async (event) => {
+    const dismiss = event.target.closest('[data-suggestion-dismiss]')?.getAttribute('data-suggestion-dismiss');
+    if (dismiss) {
+      store.dismissedSuggestions.add(dismiss);
+      renderTabSuggestions();
+      return;
+    }
+    const run = event.target.closest('[data-suggestion-run]')?.getAttribute('data-suggestion-run');
+    if (!run) return;
+    if (run.startsWith('group:')) {
+      const site = run.slice('group:'.length);
+      const loose = store.tabs.filter((tab) => !tab.is_private && !tab.is_pinned && !tab.group_name && siteKey(tab.url) === site);
+      for (const tab of loose) await setTabGroup(tab.id, site);
+      store.dismissedSuggestions.add(run);
+    } else if (run.startsWith('dupes:')) {
+      for (const group of duplicateTabGroups(store.tabs)) {
+        const keep = group.find((tab) => tab.id === store.activeTabId) ?? group[0];
+        for (const tab of group) {
+          if (tab.id !== keep.id) await closeTab(tab.id);
+        }
+      }
+      store.dismissedSuggestions.add(run);
+    }
+    await renderAll();
+  };
 }
 
 // ── Toolbar / omnibar / views ─────────────────────────────────────────
@@ -180,6 +249,14 @@ export function renderToolbar() {
     reader.classList.toggle('active', enabled);
     reader.classList.toggle('hidden', !tab || store.isInternalTab(tab));
     reader.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+  }
+
+  const split = $('#btn-split-view');
+  if (split) {
+    const splittable = !!tab && !store.isInternalTab(tab) && !store.isHomeTab(tab);
+    split.classList.toggle('hidden', !splittable && !store.splitTabId);
+    split.classList.toggle('active', !!store.splitTabId);
+    split.setAttribute('aria-pressed', store.splitTabId ? 'true' : 'false');
   }
 
   updateClearButton();

@@ -37,6 +37,19 @@ export function formatTime(ts) {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/** Local calendar day as `YYYY-MM-DD` (site time is stored per local day). */
+export function localDay(now = new Date()) {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/** Milliseconds at local midnight, `offsetDays` before today. */
+export function startOfLocalDay(offsetDays = 0, now = new Date()) {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - offsetDays).getTime();
+}
+
 /** Greeting based on local time. */
 export function greeting(now = new Date()) {
   const h = now.getHours();

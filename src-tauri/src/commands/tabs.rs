@@ -1,7 +1,7 @@
 use crate::db::{now_ms, DbState};
 use crate::error::AppError;
 use crate::models::{CloseTabResult, Tab};
-use crate::navigation::{validate_navigation_url, HOME_URL};
+use crate::navigation::{validate_navigation_url, AI_URL, HOME_URL};
 use crate::webview::{LayoutState, TabWebviewManager};
 use rusqlite::params;
 use tauri::{AppHandle, Manager, State};
@@ -38,6 +38,9 @@ pub fn get_tab(conn: &rusqlite::Connection, tab_id: &str) -> Result<Tab, AppErro
 fn title_from_url(url: &str) -> String {
     if url == HOME_URL {
         return "New Tab".to_string();
+    }
+    if url == AI_URL {
+        return "AI Workspace".to_string();
     }
     tauri::Url::parse(url)
         .map(|u| {
@@ -168,6 +171,11 @@ pub fn close_tab(
 ) -> Result<CloseTabResult, AppError> {
     let conn = db.conn();
     let tab = get_tab(&conn, &tab_id)?;
+    if tab.url == AI_URL {
+        return Err(AppError::InvalidInput(
+            "the AI Workspace tab is fixed and cannot be closed".into(),
+        ));
+    }
     let workspace_id = tab.workspace_id.clone();
 
     manager.close_view(&tab_id);
@@ -219,6 +227,16 @@ pub async fn navigate_tab(
     url: String,
 ) -> Result<Tab, AppError> {
     let target = validate_navigation_url(&url)?;
+    {
+        let db = app.state::<DbState>();
+        let conn = db.conn();
+        let tab = get_tab(&conn, &tab_id)?;
+        if tab.url == AI_URL && target != AI_URL {
+            return Err(AppError::InvalidInput(
+                "the AI Workspace tab cannot be used as a web tab".into(),
+            ));
+        }
+    }
     let manager = app.state::<TabWebviewManager>();
     manager.navigate(&app, &tab_id, &target, false).await?;
 
@@ -261,8 +279,14 @@ pub fn update_tab_meta(
     favicon_url: Option<String>,
 ) -> Result<Tab, AppError> {
     let conn = db.conn();
+    let current = get_tab(&conn, &tab_id)?;
     if let Some(url) = url {
         let target = validate_navigation_url(&url)?;
+        if current.url == AI_URL && target != AI_URL {
+            return Err(AppError::InvalidInput(
+                "the AI Workspace tab cannot navigate away".into(),
+            ));
+        }
         conn.execute("UPDATE tabs SET url = ?1 WHERE id = ?2", params![target, tab_id])?;
     }
     if let Some(title) = title {
@@ -287,6 +311,10 @@ pub fn update_tab_meta(
 #[tauri::command]
 pub fn toggle_pin_tab(db: State<'_, DbState>, tab_id: String) -> Result<Tab, AppError> {
     let conn = db.conn();
+    let tab = get_tab(&conn, &tab_id)?;
+    if tab.url == AI_URL {
+        return Ok(tab);
+    }
     conn.execute("UPDATE tabs SET is_pinned = 1 - is_pinned WHERE id = ?1", params![tab_id])?;
     get_tab(&conn, &tab_id)
 }
@@ -316,6 +344,18 @@ pub fn reorder_tab(
 ) -> Result<Vec<Tab>, AppError> {
     let conn = db.conn();
     let tab = get_tab(&conn, &tab_id)?;
+    if tab.url == AI_URL {
+        let workspace_id = tab.workspace_id.clone();
+        drop(conn);
+        return list_tabs(db, Some(workspace_id));
+    }
+    let ai_id: Option<String> = conn
+        .query_row(
+            "SELECT id FROM tabs WHERE workspace_id = ?1 AND url = ?2 LIMIT 1",
+            params![tab.workspace_id, AI_URL],
+            |r| r.get(0),
+        )
+        .ok();
     let mut stmt = conn.prepare(
         "SELECT id, sort_order FROM tabs WHERE workspace_id = ?1 ORDER BY sort_order ASC",
     )?;
@@ -329,8 +369,11 @@ pub fn reorder_tab(
         if let Some(j) = j {
             let (a, ao) = &siblings[i];
             let (b, bo) = &siblings[j];
-            conn.execute("UPDATE tabs SET sort_order = ?1 WHERE id = ?2", params![bo, a])?;
-            conn.execute("UPDATE tabs SET sort_order = ?1 WHERE id = ?2", params![ao, b])?;
+            // Never trade places with the pinned AI Workspace tab.
+            if Some(a) != ai_id.as_ref() && Some(b) != ai_id.as_ref() {
+                conn.execute("UPDATE tabs SET sort_order = ?1 WHERE id = ?2", params![bo, a])?;
+                conn.execute("UPDATE tabs SET sort_order = ?1 WHERE id = ?2", params![ao, b])?;
+            }
         }
     }
     drop(conn);
@@ -603,6 +646,11 @@ pub async fn duplicate_tab(
         let conn = db.conn();
         get_tab(&conn, &tab_id)?
     };
+    if source.url == AI_URL {
+        return Err(AppError::InvalidInput(
+            "the AI Workspace tab cannot be duplicated".into(),
+        ));
+    }
 
     let new_id = uuid::Uuid::new_v4().to_string();
     {
@@ -652,8 +700,12 @@ pub fn close_other_tabs(
         .position(|t| t.id == tab_id)
         .ok_or_else(|| AppError::NotFound("tab not found".into()))?;
     let targets: Vec<String> = match scope.as_str() {
-        "right" => ordered.iter().skip(idx + 1).map(|t| t.id.clone()).collect(),
-        _ => ordered.iter().filter(|t| t.id != tab_id).map(|t| t.id.clone()).collect(),
+        "right" => ordered.iter().skip(idx + 1).filter(|t| t.url != AI_URL).map(|t| t.id.clone()).collect(),
+        _ => ordered
+            .iter()
+            .filter(|t| t.id != tab_id && t.url != AI_URL)
+            .map(|t| t.id.clone())
+            .collect(),
     };
     for id in &targets {
         manager.close_view(id);
@@ -668,18 +720,61 @@ pub fn close_other_tabs(
     list_tabs(db, Some(keep.workspace_id))
 }
 
+/// Create the webview for a tab without making it the active tab — used when
+/// split view needs to load the second pane.
+#[tauri::command]
+pub async fn ensure_tab_view(
+    app: AppHandle,
+    db: State<'_, DbState>,
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+) -> Result<(), AppError> {
+    let tab = {
+        let conn = db.conn();
+        get_tab(&conn, &tab_id)?
+    };
+    if manager.has_view(&tab.id)
+        || crate::navigation::is_internal_url(&tab.url)
+        || tab.url.eq_ignore_ascii_case("about:blank")
+    {
+        return Ok(());
+    }
+    manager.navigate(&app, &tab.id, &tab.url, false).await
+}
+
+/// Drop a tab's webview but keep the tab row: the page is reloaded from the
+/// database the next time the tab is activated. Desktop only — on mobile every
+/// tab shares one browsing window, so closing a view would end the session.
+#[tauri::command]
+pub fn sleep_tab(manager: State<'_, TabWebviewManager>, tab_id: String) -> bool {
+    #[cfg(desktop)]
+    {
+        let had_view = manager.has_view(&tab_id);
+        manager.close_view(&tab_id);
+        manager.remove_tab_state(&tab_id);
+        had_view
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (manager, tab_id);
+        false
+    }
+}
+
 /// Keep the native webviews aligned with the shell layout.
 #[tauri::command]
 pub fn sync_tab_windows(
     app: AppHandle,
     manager: State<'_, TabWebviewManager>,
     active_tab_id: Option<String>,
+    secondary_tab_id: Option<String>,
     visible: bool,
     x: f64,
     y: f64,
     width: f64,
     height: f64,
 ) {
+    let secondary = secondary_tab_id.filter(|id| Some(id.as_str()) != active_tab_id.as_deref());
     manager.set_layout(
         LayoutState {
             offset_x: x,
@@ -688,6 +783,7 @@ pub fn sync_tab_windows(
             height: height.max(1.0),
             visible,
             active: active_tab_id,
+            secondary,
         },
         &app,
     );

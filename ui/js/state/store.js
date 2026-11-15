@@ -6,6 +6,7 @@
 
 import * as api from '../services/ipc.js';
 import { normalizeInput, HOME_URL } from '../lib/url.js';
+import { AI_TAB_URL, isAiTab, sleepCandidates } from '../lib/tabs.js';
 
 export const store = {
   ready: false,
@@ -21,6 +22,12 @@ export const store = {
   audioStates: new Map(),
   translatedTabs: new Set(),
   activeTabId: null,
+  /** Tab shown in the right-hand pane of split view (null = single pane). */
+  splitTabId: null,
+  /** Tabs whose webview was dropped to save memory (reload on activation). */
+  sleepingTabs: new Set(),
+  /** Suggestion chips the user dismissed for this session. */
+  dismissedSuggestions: new Set(),
   bookmarks: [],
   settings: {},
 
@@ -132,6 +139,7 @@ export async function initStore() {
     store.workspaces.find((w) => w.id === persisted)?.id ?? store.workspaces[0]?.id ?? null;
 
   await refreshTabs();
+  await ensureAiTab();
   // Milestone behavior: never destructively wipe tabs on launch. If no tabs
   // exist (first run), open a home tab. (restore_session governs intent;
   // see README notes on the non-destructive interpretation.)
@@ -157,7 +165,16 @@ export async function refreshTabs() {
   store.tabs = [
     ...tabs,
     ...store.privateTabs.filter((tab) => tab.workspace_id === store.activeWorkspaceId),
-  ].sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned) || a.sort_order - b.sort_order);
+  ].sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned)
+    || Number(isAiTab(a)) - Number(isAiTab(b))
+    || a.sort_order - b.sort_order);
+}
+
+/** The fixed AI tab is created by Rust, but the browser fallback needs it too. */
+async function ensureAiTab() {
+  if (!store.activeWorkspaceId || store.tabs.some(isAiTab)) return;
+  await api.createTab({ workspaceId: store.activeWorkspaceId, url: AI_TAB_URL });
+  await refreshTabs();
 }
 
 export async function refreshBookmarks() {
@@ -207,6 +224,10 @@ export async function createPrivateTab(url = HOME_URL) {
 }
 
 export async function closeTab(tabId) {
+  if (isAiTab(store.tabs.find((tab) => tab.id === tabId))) {
+    return { closed_id: null, active_tab_id: store.activeTabId, fixed: true };
+  }
+  if (store.splitTabId === tabId) store.splitTabId = null;
   if (store.privateTabs.some((tab) => tab.id === tabId)) {
     await api.closePrivateTab(tabId);
     internalNav.delete(tabId);
@@ -242,6 +263,10 @@ export async function closeTab(tabId) {
 export async function activateTab(tabId) {
   const privateTab = store.privateTabs.some((tab) => tab.id === tabId);
   if (!privateTab) await api.activateTab(tabId);
+  // Activating the tab in the right pane swaps the panes instead of dropping
+  // the split.
+  if (store.splitTabId === tabId) store.splitTabId = store.activeTabId;
+  store.sleepingTabs.delete(tabId);
   store.activeTabId = tabId;
   await refreshTabs();
   applyViewForTab(store.activeTab());
@@ -251,6 +276,8 @@ export async function activateTab(tabId) {
 
 export async function togglePinTab(tabId) {
   if (store.privateTabs.some((tab) => tab.id === tabId)) return store.privateTabs.find((tab) => tab.id === tabId);
+  const current = store.tabs.find((tab) => tab.id === tabId);
+  if (isAiTab(current)) return current;
   const tab = await api.togglePinTab(tabId);
   await refreshTabs();
   return tab;
@@ -333,6 +360,7 @@ export async function toggleReaderMode() {
 }
 
 export async function reorderTab(tabId, direction) {
+  if (isAiTab(store.tabs.find((tab) => tab.id === tabId))) return store.tabs;
   const privateTab = store.privateTabs.find((tab) => tab.id === tabId);
   if (privateTab) {
     const siblings = store.tabs
@@ -366,10 +394,18 @@ export async function navigate(rawInput) {
   });
   if (!nav) return null;
 
-  const tabId = store.activeTabId;
+  let tabId = store.activeTabId;
   if (!tabId) return null;
 
-  const activeTab = store.activeTab();
+  let activeTab = store.activeTab();
+  // The fixed AI tab is a workspace, not a web tab: typing an address or
+  // search while it is open continues in a fresh tab.
+  if (isAiTab(activeTab) && nav.url !== AI_TAB_URL) {
+    await createTab();
+    tabId = store.activeTabId;
+    activeTab = store.activeTab();
+  }
+  if (!tabId || !activeTab) return null;
   store.audioStates.set(tabId, { playing: false, muted: store.mutedTabs.has(tabId) });
   store.readerModeTabs.delete(tabId);
   store.translatedTabs.delete(tabId);
@@ -402,7 +438,7 @@ export async function navigate(rawInput) {
 /** Open one of the internal pages (history, downloads, settings, bookmarks). */
 export async function openInternalPage(page) {
   const route = String(page ?? '').split(':')[0];
-  const known = ['home', 'history', 'downloads', 'bookmarks', 'settings', 'recently-closed', 'reading-list', 'task-manager', 'media-controls', 'viewer', 'unsafe', 'profiles', 'autofill'];
+  const known = ['home', 'ai', 'history', 'downloads', 'bookmarks', 'settings', 'recently-closed', 'reading-list', 'statistics', 'task-manager', 'media-controls', 'viewer', 'unsafe', 'profiles', 'autofill', 'inspector'];
   if (!known.includes(route)) return null;
   if (route === 'settings') {
     const category = String(page).split(':')[1];
@@ -414,6 +450,7 @@ export async function openInternalPage(page) {
 export async function goHome() {
   if (!store.activeTabId) return;
   const tab = store.activeTab();
+  if (isAiTab(tab)) { await createTab(); return; }
   if (tab) store.audioStates.set(tab.id, { playing: false, muted: store.mutedTabs.has(tab.id) });
   if (tab) store.readerModeTabs.delete(tab.id);
   if (tab) store.translatedTabs.delete(tab.id);
@@ -440,6 +477,7 @@ export async function createWorkspace(name) {
   store.workspaces = await api.listWorkspaces();
   store.activeWorkspaceId = ws.id;
   await refreshTabs();
+  await ensureAiTab();
   if (store.tabs.length === 0) {
     const tab = await api.createTab({ workspaceId: ws.id, url: HOME_URL });
     store.tabs = [tab];
@@ -458,6 +496,7 @@ export async function switchWorkspace(workspaceId) {
   store.settings.active_workspace_id = workspaceId;
   store.activeWorkspaceId = workspaceId;
   await refreshTabs();
+  await ensureAiTab();
   if (store.tabs.length === 0) {
     const tab = await api.createTab({ workspaceId: workspaceId, url: HOME_URL });
     store.tabs = [tab];
@@ -546,17 +585,84 @@ export function webRegion() {
 
 export async function syncNativeViews(visibleOverride = null) {
   const tab = store.activeTab();
+  ensureValidSplit();
   const { x, y, width, height } = webRegion();
   const visible = visibleOverride ?? (store.view === 'web' && !!tab && !store.isHomeTab(tab));
+  document.getElementById('split-divider')?.classList.toggle('hidden', !(visible && !!store.splitTabId));
   try {
     await api.syncTabWindows({
       activeTabId: store.activeTabId,
+      secondaryTabId: visible ? store.splitTabId : null,
       visible,
       x, y, width, height,
     });
   } catch {
     /* preview mode — ignore */
   }
+}
+
+/** A split pane only makes sense while both tabs are real web pages. */
+function ensureValidSplit() {
+  if (!store.splitTabId) return;
+  const secondary = store.tabs.find((tab) => tab.id === store.splitTabId);
+  if (
+    !secondary
+    || store.splitTabId === store.activeTabId
+    || store.isInternalTab(secondary)
+    || store.isHomeTab(secondary)
+    || secondary.is_private
+  ) {
+    store.splitTabId = null;
+  }
+}
+
+/**
+ * Show the most recently used other tab beside the active one, or close the
+ * split if it is already open. Returns the tab now in the right pane.
+ */
+export async function toggleSplitView() {
+  if (store.splitTabId) {
+    store.splitTabId = null;
+    await syncNativeViews();
+    return null;
+  }
+  const target = store.tabs
+    .filter((tab) => tab.id !== store.activeTabId
+      && !tab.is_private
+      && !store.isInternalTab(tab)
+      && !store.isHomeTab(tab))
+    .sort((a, b) => b.last_active_at - a.last_active_at)[0];
+  if (!target) return null;
+  try {
+    await api.ensureTabView(target.id);
+  } catch {
+    /* preview mode — the divider is still shown */
+  }
+  store.splitTabId = target.id;
+  await syncNativeViews();
+  return target;
+}
+
+/** Suspend idle tabs. Returns how many webviews were actually dropped. */
+export async function sleepInactiveTabs(minutes) {
+  const playing = new Set(
+    [...store.audioStates.entries()].filter(([, state]) => state?.playing).map(([id]) => id),
+  );
+  const ids = sleepCandidates(store.tabs, {
+    activeTabId: store.activeTabId,
+    sleeping: store.sleepingTabs,
+    audioPlaying: playing,
+    minutes: Number(minutes) || 0,
+  });
+  let slept = 0;
+  for (const id of ids) {
+    const dropped = await api.sleepTab(id).catch(() => false);
+    if (dropped) {
+      store.sleepingTabs.add(id);
+      slept += 1;
+    }
+  }
+  return slept;
 }
 
 /** Update derived counts shown on the home footer. */

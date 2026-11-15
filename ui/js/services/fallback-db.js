@@ -12,6 +12,7 @@ import { parseBookmarksHtml, buildBookmarksHtml } from '../lib/bookmarks-file.js
 
 const STORAGE_KEY = 'govind.db.v1';
 export const HOME_URL = 'govind://home';
+const AI_TAB_URL = 'govind://ai';
 const MAX_TEXT = 20000;
 const now = () => Date.now();
 const id = () =>
@@ -39,6 +40,8 @@ const KNOWN_SETTINGS = {
   autofill_profiles: { type: 'profiles' },
   recently_closed: { type: 'closed-tabs' },
   muted_sites: { type: 'host-list' },
+  nvidia_api_key: { type: 'secret' },
+  nvidia_model: { type: 'string' },
 };
 
 const DEFAULT_SETTINGS = {
@@ -59,6 +62,8 @@ const DEFAULT_SETTINGS = {
   content_blocking: 'false',
   cosmetic_filters: '',
   autofill_profiles: '[]',
+  nvidia_api_key: '',
+  nvidia_model: 'nvidia/nemotron-3-super-120b-a12b',
 };
 
 function validTranslationEndpoint(value) {
@@ -155,9 +160,12 @@ export function createFallbackDb(storage) {
       const wsId = workspace_id ?? db.settings.active_workspace_id ?? db.workspaces[0]?.id;
       if (!db.workspaces.some((w) => w.id === wsId)) throw new Error('workspace not found');
       const order = db.tabs.filter((t) => t.workspace_id === wsId).reduce((m, t) => Math.max(m, t.sort_order), -1) + 1;
+      const fixed = target === AI_TAB_URL;
       const tab = {
-        id: id(), workspace_id: wsId, url: target, title: target === HOME_URL ? 'New Tab' : titleFromUrl(target),
-        favicon_url: null, is_pinned: 0, group_name: null, sort_order: order, created_at: now(), last_active_at: now(),
+        id: id(), workspace_id: wsId, url: target,
+        title: fixed ? 'AI Workspace' : target === HOME_URL ? 'New Tab' : titleFromUrl(target),
+        favicon_url: null, is_pinned: fixed ? 1 : 0, group_name: null,
+        sort_order: fixed ? -1 : order, created_at: now(), last_active_at: fixed ? 0 : now(),
       };
       db.tabs.push(tab);
       db.settings.active_workspace_id = wsId;
@@ -181,6 +189,9 @@ export function createFallbackDb(storage) {
       const db = load();
       const idx = db.tabs.findIndex((t) => t.id === tab_id);
       if (idx === -1) return { closed_id: tab_id, active_tab_id: null };
+      if (db.tabs[idx].url === AI_TAB_URL) {
+        return { closed_id: null, active_tab_id: db.tabs[idx].id, fixed: true };
+      }
       const [closed] = db.tabs.splice(idx, 1);
       const remaining = db.tabs.filter((t) => t.workspace_id === closed.workspace_id);
       let active = remaining.sort((a, b) => b.last_active_at - a.last_active_at)[0]
@@ -214,6 +225,7 @@ export function createFallbackDb(storage) {
       const db = load();
       const tab = findTab(db, tab_id);
       if (!tab) throw new Error('tab not found');
+      if (tab.url === AI_TAB_URL) return tab;
       tab.is_pinned = tab.is_pinned ? 0 : 1;
       save(db);
       return tab;
@@ -230,10 +242,11 @@ export function createFallbackDb(storage) {
       const db = load();
       const tab = findTab(db, tab_id);
       if (!tab) throw new Error('tab not found');
+      if (tab.url === AI_TAB_URL) return api.list_tabs({ workspace_id: tab.workspace_id });
       const siblings = db.tabs.filter((t) => t.workspace_id === tab.workspace_id).sort((a, b) => a.sort_order - b.sort_order);
       const i = siblings.findIndex((t) => t.id === tab_id);
       const j = direction === 'up' ? i - 1 : i + 1;
-      if (j >= 0 && j < siblings.length) {
+      if (j >= 0 && j < siblings.length && siblings[j].url !== AI_TAB_URL) {
         [siblings[i].sort_order, siblings[j].sort_order] = [siblings[j].sort_order, siblings[i].sort_order];
       }
       save(db);
@@ -445,19 +458,72 @@ export function createFallbackDb(storage) {
     async list_bookmarks() {
       return [...load().bookmarks].sort((a, b) => b.is_favorite - a.is_favorite || a.sort_order - b.sort_order || b.created_at - a.created_at);
     },
-    async save_bookmark({ title, url, is_favorite = 0 } = {}) {
+    async update_bookmark_details({ bookmark_id, tags, notes, folder } = {}) {
+      const db = load();
+      const bookmark = db.bookmarks.find((b) => b.id === bookmark_id);
+      if (!bookmark) throw new Error('bookmark not found');
+      if (tags !== undefined) bookmark.tags = String(tags);
+      if (notes !== undefined) bookmark.notes = String(notes).slice(0, 1000);
+      if (folder !== undefined) bookmark.folder = String(folder).trim().slice(0, 60);
+      save(db);
+      return bookmark;
+    },
+    async scan_download() {
+      return { status: 'unavailable', detail: 'File scanning is only available in the Windows app.' };
+    },
+    async record_site_time() {
+      return null;
+    },
+    async site_time_summary({ days = 7, from_day = '' } = {}) {
+      return { days: Number(days) || 7, from_day, total_seconds: 0, visits: 0, sites: [], series: [] };
+    },
+    // ── Developer workbench (preview has no engine to inspect) ──
+    async inspector_read() {
+      return {
+        supported: false,
+        enabled: false,
+        requests: [],
+        console: [],
+        errors: [],
+        rules: [],
+        snapshot: null,
+        mock_hits: 0,
+        dropped: 0,
+      };
+    },
+    async inspector_request() {
+      return null;
+    },
+    async set_network_capture() {
+      return false;
+    },
+    async clear_capture() {
+      return false;
+    },
+    async set_mock_rules({ rules = [] } = {}) {
+      return Array.isArray(rules) ? rules : [];
+    },
+    async request_dom_snapshot() {
+      return false;
+    },
+    async replay_request() {
+      throw new Error('Request replay is available in the installed app.');
+    },
+    async save_bookmark({ title, url, is_favorite = 0, folder = '' } = {}) {
       if (!isSafeUrl(url)) throw new Error('disallowed url scheme');
       if (url === HOME_URL) throw new Error('cannot bookmark the internal home page');
       const db = load();
+      const cleanFolder = String(folder).trim().slice(0, 60);
       const existing = db.bookmarks.find((b) => b.url === url);
       if (existing) {
         existing.title = String(title || existing.title).slice(0, 500);
         if (is_favorite) existing.is_favorite = 1;
+        if (cleanFolder) existing.folder = cleanFolder;
         save(db);
         return existing;
       }
       const order = db.bookmarks.reduce((m, b) => Math.max(m, b.sort_order), -1) + 1;
-      const b = { id: id(), title: String(title || titleFromUrl(url)).slice(0, 500), url, is_favorite: is_favorite ? 1 : 0, sort_order: order, created_at: now() };
+      const b = { id: id(), title: String(title || titleFromUrl(url)).slice(0, 500), url, is_favorite: is_favorite ? 1 : 0, sort_order: order, created_at: now(), tags: '', notes: '', folder: cleanFolder };
       db.bookmarks.push(b);
       save(db);
       return b;
@@ -613,12 +679,16 @@ export function createFallbackDb(storage) {
     },
 
     // ── History ─────────────────────────────────────────────
-    async search_history({ query = '', limit = 100 } = {}) {
+    async search_history({ query = '', limit = 100, domain = '', from = 0, to = 0 } = {}) {
       const db = load();
       const q = String(query).trim().toLowerCase();
+      const site = String(domain).trim().toLowerCase();
       const lim = Math.min(Math.max(Number(limit) || 100, 1), 500);
       return [...db.history]
         .filter((h) => !q || h.url.toLowerCase().includes(q) || h.title.toLowerCase().includes(q))
+        .filter((h) => !site || h.url.toLowerCase().includes(site))
+        .filter((h) => !from || h.visited_at >= from)
+        .filter((h) => !to || h.visited_at <= to)
         .sort((a, b) => b.visited_at - a.visited_at)
         .slice(0, lim);
     },
@@ -714,7 +784,11 @@ export function createFallbackDb(storage) {
 
     // ── Settings ────────────────────────────────────────────
     async get_settings() {
-      return { ...DEFAULT_SETTINGS, ...load().settings };
+      const settings = { ...DEFAULT_SETTINGS, ...load().settings };
+      const hasKey = !!settings.nvidia_api_key;
+      delete settings.nvidia_api_key;
+      settings.nvidia_api_key_set = hasKey ? 'true' : 'false';
+      return settings;
     },
     async set_setting({ key, value }) {
       const spec = KNOWN_SETTINGS[key];
@@ -750,6 +824,10 @@ export function createFallbackDb(storage) {
           throw new Error('recently closed tabs must be a JSON array of at most 20 entries');
         }
       }
+      if (spec.type === 'secret' && v
+        && (v.length < 20 || v.length > 512 || !/^nvapi-[A-Za-z0-9_-]+$/.test(v))) {
+        throw new Error('NVIDIA API keys start with nvapi-');
+      }
       if (spec.type === 'host-list') {
         try {
           const parsed = JSON.parse(v);
@@ -762,7 +840,14 @@ export function createFallbackDb(storage) {
       const db = load();
       db.settings[key] = v;
       save(db);
+      if (spec.type === 'secret') return { key, saved: true };
       return { key, value: v };
+    },
+    async save_nvidia_api_key() {
+      throw new Error('NVIDIA key verification is available in the installed app.');
+    },
+    async test_nvidia_models() {
+      throw new Error('NVIDIA model testing is available in the installed app.');
     },
 
     // ── Privacy: clear data ─────────────────────────────────
@@ -884,6 +969,7 @@ export function createFallbackDb(storage) {
       const db = load();
       const source = findTab(db, tab_id);
       if (!source) throw new Error('tab not found');
+      if (source.url === AI_TAB_URL) throw new Error('the AI Workspace tab cannot be duplicated');
       const clone = {
         ...source, id: 'fb-' + Math.random().toString(16).slice(2, 8),
         is_pinned: 0, sort_order: (db.tabs?.length ?? 0) + 1,
@@ -898,9 +984,9 @@ export function createFallbackDb(storage) {
       const source = findTab(db, tab_id);
       if (!source) throw new Error('tab not found');
       const siblings = db.tabs.filter((t) => t.workspace_id === source.workspace_id && t.id !== tab_id);
-      const targets = scope === 'right'
+      const targets = (scope === 'right'
         ? siblings.filter((t) => t.sort_order > source.sort_order)
-        : siblings;
+        : siblings).filter((t) => t.url !== AI_TAB_URL);
       db.tabs = db.tabs.filter((t) => !targets.includes(t));
       save(db);
       return db.tabs.filter((t) => t.workspace_id === source.workspace_id);
@@ -928,6 +1014,29 @@ export function createFallbackDb(storage) {
     async request_page_snapshot() { throw new Error('Page snapshots need the installed app.'); },
     async clear_site_data() { return { ok: true }; },
     async bypass_unsafe_url() { return { ok: true }; },
+    async generation_info() {
+      return {
+        supported: false,
+        detail: 'Generation is available in the installed app.',
+        binary: null,
+        running: false,
+        active_job: null,
+        provider: 'NVIDIA NIM',
+        api_key_configured: false,
+        model: 'nvidia/nemotron-3-super-120b-a12b',
+        models: [
+          'nvidia/nemotron-3-super-120b-a12b',
+          'nvidia/llama-3.1-nemotron-70b-instruct',
+          'nvidia/nemotron-3.5-lightning-30b-a3b',
+          'nvidia/llama-3.1-nemotron-51b-instruct',
+          'openai/gpt-oss-20b',
+        ],
+      };
+    },
+    async generate_artifact() {
+      throw new Error('Generation is available in the installed app.');
+    },
+    async cancel_generation() { return false; },
   };
 
   return api;

@@ -52,16 +52,21 @@ Ritam Browser is a local-first desktop browser that prioritizes user privacy and
 
 ### Organization
 - Workspaces (multiple workspaces per profile)
-- Bookmarks with favorites
-- Browsing history
-- Downloads manager
+- Bookmarks with favorites, tags, notes, folders and search
+- Browsing history with keyword, domain and date-range search
+- Downloads manager with folder/rename rules, retry and Windows Defender scanning
+- Website time tracking and browsing statistics (`govind://statistics`)
+- New-tab dashboard widgets and website shortcut buttons
 - Scratchpad (local notes)
 - Reading list with offline snapshots
 - Tab groups (named, collapsible)
+- Split view and configurable tab sleeping
+- Undo centre for recently closed tabs and their groups
 
 ### Productivity
 - Command palette (Ctrl+K)
-- Tab search / quick switcher (Ctrl+Shift+A)
+- Tab search / quick switcher (Ctrl+Shift+A), across workspaces
+- Custom keyboard shortcuts (Settings → Keyboard)
 - Quick popovers for downloads, history, bookmarks
 - Reader mode
 - Read Aloud with word highlighting
@@ -78,10 +83,11 @@ Ritam Browser is a local-first desktop browser that prioritizes user privacy and
   filled only when you press Ctrl+Shift+L on the page you are looking at
 
 ### Data Management
-- Bookmark import/export (Netscape HTML)
+- Bookmark import/export (Netscape HTML, folders preserved)
 - Import bookmarks and history from Chrome, Edge, Brave, Firefox or Safari (read-only source)
-- Encrypted backup and restore (.gbak)
+- Encrypted backup and restore (.gbak), covering tags, notes, folders and scan verdicts
 - Task manager (per-tab state view)
+- Developer workbench (`govind://inspector`): network requests, console, errors, cURL/Fetch export, replay, mocks and DOM snapshots
 
 ### Deliberately out of scope
 - **Password manager** — skipped: no encrypted credential vault, so nothing stores passwords.
@@ -118,7 +124,7 @@ npm run tauri:build
 
 ```bash
 npm run dev        # Starts local server at http://localhost:8081
-npm test           # Runs 58 unit tests
+npm test           # Runs 103 unit tests
 ```
 
 ---
@@ -172,6 +178,7 @@ ritam-browser/
 | `F11` | Toggle fullscreen |
 | `Ctrl+F` | Find in page |
 | `Esc` | Close palette/panels/menus |
+| Settings → Keyboard | Replace built-in combos with your own |
 
 ---
 
@@ -185,7 +192,9 @@ Access these by typing in the address bar:
 | Downloads | `govind://downloads` |
 | Bookmarks | `govind://bookmarks` |
 | Reading List | `govind://reading-list` |
-| Recently Closed | `govind://recently-closed` |
+| Undo Centre | `govind://recently-closed` |
+| Statistics | `govind://statistics` |
+| Inspector (Windows/WebView2) | `govind://inspector` |
 | Task Manager | `govind://task-manager` |
 | Media Controls | `govind://media-controls` |
 | Settings | `govind://settings` |
@@ -234,6 +243,7 @@ Access these by typing in the address bar:
 | [Product Requirements](docs/PRD_v2.md) | Product roadmap and requirements |
 | [Backend Architecture](backend.md) | Implementation boundaries and privacy model |
 | [Engine Analysis](docs/ENGINE_SPIKE.md) | Browser engine feasibility study |
+| [Generation ADR](docs/ADR-008-workany-generation.md) | WorkAny sidecar decision, security gates and status |
 
 ---
 

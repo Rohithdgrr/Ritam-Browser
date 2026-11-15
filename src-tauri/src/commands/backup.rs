@@ -101,7 +101,7 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
     )?;
     let bookmarks = collect_rows(
         conn,
-        "SELECT id, title, url, is_favorite, sort_order, created_at FROM bookmarks WHERE profile_id = ?1",
+        "SELECT id, title, url, is_favorite, sort_order, created_at, tags, notes, folder FROM bookmarks WHERE profile_id = ?1",
         scope,
         |r| {
             Ok(Bookmark {
@@ -111,6 +111,9 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
                 is_favorite: r.get(3)?,
                 sort_order: r.get(4)?,
                 created_at: r.get(5)?,
+                tags: r.get(6)?,
+                notes: r.get(7)?,
+                folder: r.get(8)?,
             })
         },
     )?;
@@ -144,7 +147,7 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
     )?;
     let downloads = collect_rows(
         conn,
-        "SELECT id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at
+        "SELECT id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at, scan_status
          FROM downloads WHERE profile_id = ?1",
         scope,
         |r| {
@@ -159,6 +162,7 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
                 status: r.get(7)?,
                 created_at: r.get(8)?,
                 completed_at: r.get(9)?,
+                scan_status: r.get(10)?,
             })
         },
     )?;
@@ -196,7 +200,10 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
         let rows = statement.query_map(scope, |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
-        rows.collect::<Result<HashMap<_, _>, _>>()?
+        let mut map = rows.collect::<Result<HashMap<_, _>, _>>()?;
+        // Provider credentials stay on this device, even in encrypted backups.
+        map.remove(crate::commands::settings::NVIDIA_API_KEY_KEY);
+        map
     };
 
     Ok(BrowserBackup {
@@ -455,8 +462,8 @@ fn merge_snapshot(
     }
     for row in &backup.bookmarks {
         summary.bookmarks += tx.execute(
-            "INSERT OR IGNORE INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![row.id, profile, row.title, row.url, row.is_favorite, row.sort_order, row.created_at],
+            "INSERT OR IGNORE INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at, tags, notes, folder) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![row.id, profile, row.title, row.url, row.is_favorite, row.sort_order, row.created_at, row.tags, row.notes, row.folder],
         )?;
     }
     for row in &backup.history {
@@ -478,9 +485,9 @@ fn merge_snapshot(
     }
     for row in &backup.downloads {
         summary.downloads += tx.execute(
-            "INSERT OR IGNORE INTO downloads (id, profile_id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![row.id, profile, row.url, row.filename, row.destination, row.mime_type, row.total_bytes, row.received_bytes, row.status, row.created_at, row.completed_at],
+            "INSERT OR IGNORE INTO downloads (id, profile_id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at, scan_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![row.id, profile, row.url, row.filename, row.destination, row.mime_type, row.total_bytes, row.received_bytes, row.status, row.created_at, row.completed_at, row.scan_status],
         )?;
     }
     for row in &backup.reading_list {
@@ -496,6 +503,9 @@ fn merge_snapshot(
         )?;
     }
     for (key, value) in &backup.settings {
+        if key == crate::commands::settings::NVIDIA_API_KEY_KEY {
+            continue;
+        }
         summary.settings += tx.execute(
             "INSERT OR IGNORE INTO settings (profile_id, key, value) VALUES (?1, ?2, ?3)",
             params![profile, key, value],
@@ -659,6 +669,9 @@ mod tests {
                 is_favorite: 1,
                 sort_order: 0,
                 created_at: 1,
+                tags: String::new(),
+                notes: String::new(),
+                folder: String::new(),
             }],
             history: vec![HistoryEntry {
                 id: "history-1".into(),

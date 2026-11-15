@@ -10,14 +10,16 @@
  * the tab keeps its own history entry, and no webview is created for them.
  */
 
-import { $, $$, escapeHtml, formatBytes, formatTime, toast } from '../lib/dom.js';
+import { $, $$, escapeHtml, formatBytes, formatTime, localDay, startOfLocalDay, toast } from '../lib/dom.js';
 import * as api from '../services/ipc.js';
 import { displayUrl, hostOf, monogram } from '../lib/url.js';
-import { store, refreshBookmarks, goHome, persistClosedTabs, clearClosedTabs } from '../state/store.js';
+import { store, refreshBookmarks, goHome, persistClosedTabs, clearClosedTabs, reopenClosedTab } from '../state/store.js';
 import { renderSettingsPage } from './settings.js';
 import { renderViewerPage } from './viewer.js';
 import { renderProfilesPage } from './profiles.js';
 import { renderAutofillPage } from './autofill.js';
+import { renderInspectorPage } from './inspector.js';
+import { renderAiWorkspace } from './ai.js';
 
 const ICON = {
   history: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
@@ -35,6 +37,7 @@ const ICON = {
   file: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
   profiles: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
   autofill: '<svg class="icon sm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h5M7 13h10M7 17h7"/></svg>',
+  inspector: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M2 12h4l3-9 6 18 3-9h4"/></svg>',
 };
 
 const NAV_ITEMS = [
@@ -44,10 +47,12 @@ const NAV_ITEMS = [
   { page: 'profiles', label: 'Profiles', icon: ICON.profiles },
   { page: 'autofill', label: 'Autofill', icon: ICON.autofill },
   { page: 'reading-list', label: 'Reading list', icon: ICON.reading },
+  { page: 'statistics', label: 'Statistics', icon: ICON.taskManager },
+  { page: 'inspector', label: 'Inspector', icon: ICON.inspector },
   { page: 'task-manager', label: 'Task manager', icon: ICON.taskManager },
   { page: 'media-controls', label: 'Media controls', icon: ICON.media },
   { page: 'viewer', label: 'File viewer', icon: ICON.file },
-  { page: 'recently-closed', label: 'Recently closed', icon: ICON.recentlyClosed },
+  { page: 'recently-closed', label: 'Undo centre', icon: ICON.recentlyClosed },
   { page: 'settings', label: 'Settings', icon: ICON.settings },
 ];
 
@@ -59,9 +64,12 @@ const PAGE_TITLES = {
   autofill: 'Autofill',
   'reading-list': 'Reading list',
   'task-manager': 'Task manager',
+  statistics: 'Browsing statistics',
+  inspector: 'Network inspector',
   'media-controls': 'Media controls',
   viewer: 'File viewer',
-  'recently-closed': 'Recently closed tabs',
+  'recently-closed': 'Undo centre',
+  ai: 'AI Workspace',
   unsafe: 'Safety check',
   settings: 'Settings',
 };
@@ -69,13 +77,18 @@ const PAGE_TITLES = {
 /** Per-page UI state (kept between renders). */
 const uiState = {
   historyQuery: '',
+  historyDomain: '',
+  historyFrom: '',
+  historyTo: '',
   downloadQuery: '',
   bookmarkQuery: '',
+  bookmarkFolder: '',
   readingQuery: '',
   historySelection: new Set(),
   downloadSelection: new Set(),
   bookmarkSelection: new Set(),
   groupMode: 'date',
+  statsDays: 7,
 };
 
 export function internalPageTitle(page = store.internalPage) {
@@ -93,6 +106,12 @@ export async function renderInternalPage() {
 
   if (page === 'viewer') {
     renderViewerPage();
+    return;
+  }
+
+  if (page === 'ai') {
+    host.innerHTML = '<div id="ai-workspace-host"></div>';
+    renderAiWorkspace($('#ai-workspace-host'));
     return;
   }
 
@@ -140,6 +159,8 @@ export async function renderInternalPage() {
   else if (page === 'downloads') await renderDownloadsPage();
   else if (page === 'bookmarks') await renderBookmarksPage();
   else if (page === 'reading-list') await renderReadingListPage();
+  else if (page === 'statistics') await renderStatisticsPage();
+  else if (page === 'inspector') await renderInspectorPage($('#internal-body'));
   else if (page === 'task-manager') renderTaskManagerPage();
   else if (page === 'media-controls') await renderMediaControlsPage();
   else if (page === 'recently-closed') renderRecentlyClosedPage();
@@ -147,7 +168,7 @@ export async function renderInternalPage() {
   else if (page === 'autofill') await renderAutofillPage($('#internal-body'));
 
   wireInternal();
-  if (['recently-closed', 'profiles', 'autofill'].includes(page)) $('.internal-search')?.classList.add('hidden');
+  if (['recently-closed', 'profiles', 'autofill', 'statistics', 'inspector'].includes(page)) $('.internal-search')?.classList.add('hidden');
 }
 
 function renderRecentlyClosedPage() {
@@ -158,16 +179,72 @@ function renderRecentlyClosedPage() {
     updateHeaderActions();
     return;
   }
-  groups.innerHTML = `<section class="internal-group"><div class="internal-card">
+  groups.innerHTML = `
+    <p class="internal-note">Restoring a tab also restores its group. Deleting a workspace is not undoable — its bookmarks and history are removed with it.</p>
+    <section class="internal-group"><div class="internal-card">
     ${store.closedTabs.map((tab) => `
       <div class="internal-row">
         <span class="row-fav" aria-hidden="true">${escapeHtml(monogram(tab.url))}</span>
         <span class="row-title" title="${escapeHtml(tab.url)}">${escapeHtml(tab.title || tab.url)}</span>
-        <span class="row-domain">${escapeHtml(displayUrl(tab.url))}</span>
+        <span class="row-domain">${escapeHtml(displayUrl(tab.url))}${tab.group_name ? ` \u00b7 ${escapeHtml(tab.group_name)}` : ''}</span>
         <button class="btn-secondary" data-reopen-closed="${escapeHtml(tab.id)}">Reopen</button>
-        <button class="row-action" data-dismiss-closed="${escapeHtml(tab.id)}" title="Remove from recently closed" aria-label="Remove ${escapeHtml(tab.title || tab.url)}">${ICON.trash}</button>
+        <button class="row-action" data-dismiss-closed="${escapeHtml(tab.id)}" title="Remove from undo history" aria-label="Remove ${escapeHtml(tab.title || tab.url)}">${ICON.trash}</button>
       </div>`).join('')}
   </div></section>`;
+  updateHeaderActions();
+}
+
+// ── Statistics ────────────────────────────────────────────────────────
+function shortDay(value) {
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function formatDuration(minutes) {
+  if (!minutes) return '0m';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+async function renderStatisticsPage() {
+  const body = $('#internal-body');
+  if (!body) return;
+  const days = uiState.statsDays;
+  let stats = { total_seconds: 0, visits: 0, sites: [], series: [] };
+  try {
+    stats = await api.siteTimeSummary(days, localDay(), startOfLocalDay(days - 1));
+  } catch { /* preview mode */ }
+  const sites = stats.sites ?? [];
+  const longest = Math.max(1, ...sites.map((site) => site.seconds));
+  body.innerHTML = `
+    <div class="internal-tabs" role="tablist">
+      ${[1, 7, 30].map((value) => `<button class="internal-tab ${days === value ? 'active' : ''}" data-stats-days="${value}" role="tab">${value === 1 ? 'Today' : `${value} days`}</button>`).join('')}
+    </div>
+    <div class="stats-summary">
+      <div class="stats-card"><strong>${escapeHtml(formatDuration(Math.round((stats.total_seconds ?? 0) / 60)))}</strong><span>active browsing time</span></div>
+      <div class="stats-card"><strong>${Number(stats.visits ?? 0)}</strong><span>unique pages in history</span></div>
+      <div class="stats-card"><strong>${sites.length}</strong><span>sites in this report</span></div>
+    </div>
+    ${(stats.series ?? []).length
+      ? `<section class="internal-group"><h2>By day</h2><div class="internal-card">${stats.series.map((entry) => `
+          <div class="internal-row stats-row">
+            <span class="row-title">${escapeHtml(shortDay(entry.day))}</span>
+            <span class="stats-bar"><span style="width:${Math.round((entry.seconds / Math.max(1, ...(stats.series ?? []).map((day) => day.seconds))) * 100)}%"></span></span>
+            <span class="row-domain">${escapeHtml(formatDuration(Math.round(entry.seconds / 60)))}</span>
+          </div>`).join('')}</div></section>`
+      : ''}
+    ${sites.length === 0
+      ? '<div class="internal-empty"><p>No time recorded yet. Statistics stay on this device and start after the first minute of browsing.</p></div>'
+      : `<section class="internal-group"><h2>Most time</h2><div class="internal-card">${sites.map((site) => `
+          <div class="internal-row stats-row">
+            <span class="row-title">${escapeHtml(site.host)}</span>
+            <span class="stats-bar"><span style="width:${Math.round((site.seconds / longest) * 100)}%"></span></span>
+            <span class="row-domain">${escapeHtml(formatDuration(Math.round(site.seconds / 60)))}</span>
+          </div>`).join('')}</div></section>`}
+    <p class="internal-note">Time is counted only while a site is in the active tab and the window has focus. The ledger lives in this profile's database and is never sent anywhere.</p>`;
   updateHeaderActions();
 }
 
@@ -180,16 +257,30 @@ async function renderHistoryPage() {
       <button class="internal-tab ${uiState.groupMode === 'date' ? 'active' : ''}" data-group-mode="date" role="tab">By date</button>
       <button class="internal-tab ${uiState.groupMode === 'domain' ? 'active' : ''}" data-group-mode="domain" role="tab">By group</button>
     </div>
+    <div class="history-filters">
+      <input id="history-domain" type="text" placeholder="Domain (example.com)" spellcheck="false" value="${escapeHtml(uiState.historyDomain)}" aria-label="Filter by domain"/>
+      <input id="history-from" type="date" value="${escapeHtml(uiState.historyFrom)}" aria-label="From date"/>
+      <input id="history-to" type="date" value="${escapeHtml(uiState.historyTo)}" aria-label="To date"/>
+      <button class="btn-secondary" data-action="reset-history-filters" type="button">Reset</button>
+    </div>
     <div id="internal-groups" class="internal-groups"></div>`;
 
   const query = uiState.historyQuery;
-  const rows = await api.searchHistory(query, 500);
+  const from = uiState.historyFrom ? new Date(`${uiState.historyFrom}T00:00:00`).getTime() : 0;
+  const to = uiState.historyTo ? new Date(`${uiState.historyTo}T23:59:59`).getTime() : 0;
+  const rows = await api.searchHistoryAdvanced({
+    query,
+    limit: 500,
+    domain: uiState.historyDomain,
+    from: Number.isFinite(from) ? from : 0,
+    to: Number.isFinite(to) ? to : 0,
+  });
   const groups = $('#internal-groups');
   if (!groups) return;
 
   if (rows.length === 0) {
     groups.innerHTML = `<div class="internal-empty">
-      <p>${query ? 'No history entries match your search.' : 'No history yet. Pages you visit appear here, stored only on this device.'}</p>
+      <p>${query || uiState.historyDomain || uiState.historyFrom || uiState.historyTo ? 'No history entries match these filters.' : 'No history yet. Pages you visit appear here, stored only on this device.'}</p>
     </div>`;
     updateHeaderActions();
     return;
@@ -230,7 +321,7 @@ async function renderHistoryPage() {
 async function renderDownloadsPage() {
   const body = $('#internal-body');
   if (!body) return;
-  body.innerHTML = '<div id="internal-groups" class="internal-groups"></div>';
+  body.innerHTML = '<p class="internal-note">The engine saves files in the background; an interrupted transfer cannot be resumed, so Retry downloads the file again.</p><div id="internal-groups" class="internal-groups"></div>';
 
   const query = uiState.downloadQuery.toLowerCase();
   const all = await api.listDownloads();
@@ -265,9 +356,15 @@ async function renderDownloadsPage() {
                    aria-label="Select ${escapeHtml(row.filename)}" />
             <span class="file-icon" aria-hidden="true">${ICON.file}</span>
             <a class="row-title link" href="#" data-open-file="${escapeHtml(row.destination ?? '')}" title="${escapeHtml(row.destination ?? row.url)}">${escapeHtml(row.filename)}</a>
-            <span class="row-domain">${escapeHtml(row.status)}${row.total_bytes ? ` · ${formatBytes(row.total_bytes)}` : ''} · ${escapeHtml(formatTime(row.created_at))}</span>
-            <button class="row-action" data-show-file="${escapeHtml(row.destination ?? '')}" title="Open file" aria-label="Open file" ${row.destination ? '' : 'disabled'}>
+            <span class="row-domain">${escapeHtml(row.status)}${row.total_bytes ? ` · ${formatBytes(row.total_bytes)}` : ''}${row.scan_status ? ` · ${escapeHtml(row.scan_status)}` : ''} · ${escapeHtml(formatTime(row.created_at))}</span>
+            <button class="row-action" data-scan-file="${escapeHtml(row.destination ?? '')}" title="Scan with Microsoft Defender" aria-label="Scan ${escapeHtml(row.filename)}" ${row.destination ? '' : 'disabled'}>
+              ${ICON.shield}
+            </button>
+            <button class="row-action" data-show-file="${escapeHtml(row.destination ?? '')}" data-scan="${escapeHtml(row.scan_status ?? '')}" title="Open file" aria-label="Open file" ${row.destination ? '' : 'disabled'}>
               ${ICON.folder}
+            </button>
+            <button class="row-action" data-retry-download="${escapeHtml(row.url)}" title="Download again" aria-label="Download ${escapeHtml(row.filename)} again">
+              ${ICON.recentlyClosed}
             </button>
             <button class="row-action" data-remove-download="${escapeHtml(row.id)}" title="Remove from list" aria-label="Remove from list">
               ${ICON.trash}
@@ -287,21 +384,43 @@ async function renderBookmarksPage() {
   await refreshBookmarks();
 
   const query = uiState.bookmarkQuery.toLowerCase();
-  const rows = store.bookmarks.filter((b) =>
-    !query || b.title.toLowerCase().includes(query) || b.url.toLowerCase().includes(query));
+  const folders = [...new Set(store.bookmarks.map((b) => String(b.folder ?? '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  if (uiState.bookmarkFolder && !folders.includes(uiState.bookmarkFolder)) {
+    uiState.bookmarkFolder = '';
+  }
+  const rows = store.bookmarks.filter((b) => {
+    if (uiState.bookmarkFolder && String(b.folder ?? '') !== uiState.bookmarkFolder) return false;
+    return !query
+      || b.title.toLowerCase().includes(query)
+      || b.url.toLowerCase().includes(query)
+      || String(b.tags ?? '').toLowerCase().includes(query)
+      || String(b.notes ?? '').toLowerCase().includes(query)
+      || String(b.folder ?? '').toLowerCase().includes(query);
+  });
 
   const groups = $('#internal-groups');
   if (!groups) return;
 
+  const folderFilter = folders.length
+    ? `<div class="bookmark-filters">
+        <select id="bookmark-folder-filter" aria-label="Filter bookmarks by folder">
+          <option value="">All folders</option>
+          ${folders.map((folder) => `<option value="${escapeHtml(folder)}" ${folder === uiState.bookmarkFolder ? 'selected' : ''}>${escapeHtml(folder)}</option>`).join('')}
+        </select>
+      </div>`
+    : '';
+
   if (rows.length === 0) {
-    groups.innerHTML = `<div class="internal-empty">
-      <p>${query ? 'No bookmarks match your search.' : 'No bookmarks yet. Star a page from the address bar to save it.'}</p>
+    groups.innerHTML = `${folderFilter}<div class="internal-empty">
+      <p>${query || uiState.bookmarkFolder ? 'No bookmarks match this search.' : 'No bookmarks yet. Star a page from the address bar to save it.'}</p>
     </div>`;
     updateHeaderActions();
     return;
   }
 
   groups.innerHTML = `
+    ${folderFilter}
     <section class="internal-group">
       <div class="internal-card">
         ${rows.map((b) => `
@@ -309,8 +428,17 @@ async function renderBookmarksPage() {
             <input class="row-check" type="checkbox" ${uiState.bookmarkSelection.has(b.id) ? 'checked' : ''}
                    aria-label="Select ${escapeHtml(b.title)}" />
             <span class="row-fav" aria-hidden="true">${escapeHtml(monogram(b.url))}</span>
-            <a class="row-title link" href="#" data-open-url="${escapeHtml(b.url)}" title="${escapeHtml(b.url)}">${escapeHtml(b.title)}</a>
-            <span class="row-domain">${escapeHtml(displayUrl(b.url))}</span>
+            <a class="row-title link" href="#" data-open-url="${escapeHtml(b.url)}" title="${escapeHtml(b.notes || b.url)}">${escapeHtml(b.title)}</a>
+            <span class="row-domain">${escapeHtml(displayUrl(b.url))}${b.folder ? ` \u00b7 ${escapeHtml(b.folder)}` : ''}${b.tags ? ` \u00b7 ${escapeHtml(b.tags)}` : ''}</span>
+            <button class="row-action ${b.folder ? 'active' : ''}" data-edit-folder="${escapeHtml(b.id)}" title="Folder${b.folder ? `: ${escapeHtml(b.folder)}` : ''}" aria-label="Edit folder">
+              ${ICON.folder}
+            </button>
+            <button class="row-action ${b.tags ? 'active' : ''}" data-edit-tags="${escapeHtml(b.id)}" title="Tags${b.tags ? `: ${escapeHtml(b.tags)}` : ''}" aria-label="Edit tags">
+              ${ICON.autofill}
+            </button>
+            <button class="row-action ${b.notes ? 'active' : ''}" data-edit-notes="${escapeHtml(b.id)}" title="${b.notes ? escapeHtml(b.notes) : 'Add a note'}" aria-label="Edit note">
+              ${ICON.file}
+            </button>
             <button class="row-action" data-fav="${escapeHtml(b.id)}" title="${b.is_favorite ? 'Remove favourite' : 'Mark as favourite'}" aria-label="Toggle favourite">
               ${ICON.bookmarks}
             </button>
@@ -486,12 +614,35 @@ function updateHeaderActions() {
     buttons.push('<button class="btn-secondary" data-action="import-bookmarks">Import…</button>');
   }
   if (page === 'recently-closed' && store.closedTabs.length > 0) {
+    buttons.push('<button class="btn-secondary" data-action="restore-all-closed">Restore all</button>');
     buttons.push('<button class="btn-secondary" data-action="clear-closed">Clear all</button>');
   }
   if (page === 'reading-list' && lastReadingCount > 0) {
     buttons.push('<button class="btn-secondary" data-action="clear-reading">Clear all</button>');
   }
   host.innerHTML = buttons.join('');
+}
+
+/// Run the local scanner for one downloaded file and report the verdict.
+async function scanDownloadFile(path, { quiet = false } = {}) {
+  if (!path) return { status: 'unavailable', detail: 'no file path' };
+  if (!quiet) toast('Scanning the file with Microsoft Defender…');
+  let result;
+  try {
+    result = await api.scanDownload(path);
+  } catch (error) {
+    result = { status: 'error', detail: String(error?.message ?? error) };
+  }
+  if (result.status === 'clean') {
+    toast('Scan finished: no threats found.');
+  } else if (result.status === 'threat') {
+    toast('Warning: the scanner flagged this file. Ritam will not open it, and the file was not deleted.');
+  } else if (result.status === 'unavailable') {
+    toast(result.detail || 'File scanning is not available on this system.');
+  } else {
+    toast(`Scan could not finish: ${result.detail || 'unknown error'}`);
+  }
+  return result;
 }
 
 /** Export the bookmark list as a Netscape bookmark file (via the engine download). */
@@ -642,10 +793,86 @@ export function wireInternal() {
         return;
       }
 
+      const retryDownload = e.target.closest('[data-retry-download]')?.getAttribute('data-retry-download');
+      if (retryDownload) {
+        e.preventDefault();
+        // The system engine owns the transfer, so an interrupted file cannot be
+        // resumed byte-for-byte — retrying starts a fresh download.
+        document.dispatchEvent(new CustomEvent('govind:navigate', { detail: retryDownload }));
+        toast('Downloading again.');
+        return;
+      }
+
+      const statsDays = e.target.closest('[data-stats-days]')?.getAttribute('data-stats-days');
+      if (statsDays) {
+        uiState.statsDays = [1, 7, 30].includes(Number(statsDays)) ? Number(statsDays) : 7;
+        await renderInternalPage();
+        return;
+      }
+
+      const editFolder = e.target.closest('[data-edit-folder]')?.getAttribute('data-edit-folder');
+      if (editFolder) {
+        const bookmark = store.bookmarks.find((entry) => entry.id === editFolder);
+        const value = window.prompt('Folder for this bookmark (leave empty to unfile)', bookmark?.folder ?? '');
+        if (value !== null) {
+          await api.updateBookmarkDetails(editFolder, { folder: value });
+          await refreshBookmarks();
+          await renderInternalPage();
+          toast(value.trim() ? 'Folder saved.' : 'Bookmark unfiled.');
+        }
+        return;
+      }
+
+      const editTags = e.target.closest('[data-edit-tags]')?.getAttribute('data-edit-tags');
+      if (editTags) {
+        const bookmark = store.bookmarks.find((entry) => entry.id === editTags);
+        const value = window.prompt('Tags (comma-separated, up to 8)', bookmark?.tags ?? '');
+        if (value !== null) {
+          await api.updateBookmarkDetails(editTags, { tags: value });
+          await refreshBookmarks();
+          await renderInternalPage();
+          toast('Tags saved.');
+        }
+        return;
+      }
+
+      const editNotes = e.target.closest('[data-edit-notes]')?.getAttribute('data-edit-notes');
+      if (editNotes) {
+        const bookmark = store.bookmarks.find((entry) => entry.id === editNotes);
+        const value = window.prompt('Note for this bookmark', bookmark?.notes ?? '');
+        if (value !== null) {
+          await api.updateBookmarkDetails(editNotes, { notes: value });
+          await refreshBookmarks();
+          await renderInternalPage();
+          toast(value.trim() ? 'Note saved.' : 'Note removed.');
+        }
+        return;
+      }
+
+      const scanFile = e.target.closest('[data-scan-file]')?.getAttribute('data-scan-file');
+      if (scanFile) {
+        e.preventDefault();
+        await scanDownloadFile(scanFile);
+        await renderInternalPage();
+        return;
+      }
+
       const showFile = e.target.closest('[data-show-file]')?.getAttribute('data-show-file');
       if (showFile) {
         e.preventDefault();
-        if (showFile) await api.openExternal(showFile);
+        const scanStatus = e.target.closest('[data-show-file]')?.getAttribute('data-scan') ?? '';
+        if (scanStatus === 'threat') {
+          toast('The scanner flagged this file. Ritam will not open it; the file itself was not deleted.');
+          return;
+        }
+        // "Scan before opening": an unscanned file is checked first when the
+        // user enabled scanning; a threat blocks the open, anything else opens.
+        if (!scanStatus && store.settings.download_scan === 'true') {
+          const result = await scanDownloadFile(showFile, { quiet: true });
+          if (result.status === 'threat') return;
+          await renderInternalPage();
+        }
+        await api.openExternal(showFile);
         return;
       }
 
@@ -746,6 +973,13 @@ export function wireInternal() {
       }
 
       const action = e.target.closest('[data-action]')?.getAttribute('data-action');
+      if (action === 'reset-history-filters') {
+        uiState.historyDomain = '';
+        uiState.historyFrom = '';
+        uiState.historyTo = '';
+        await renderInternalPage();
+        return;
+      }
       if (action === 'clear-history') {
         await api.clearBrowsingData(['history']);
         clearTimeout(uiState.timer);
@@ -776,6 +1010,15 @@ export function wireInternal() {
         await renderInternalPage();
         return;
       }
+      if (action === 'restore-all-closed') {
+        // Oldest first so each reopened tab lands after the previous one.
+        for (const closed of [...store.closedTabs].reverse()) {
+          await reopenClosedTab(closed.id);
+        }
+        await renderInternalPage();
+        toast('Closed tabs restored.');
+        return;
+      }
       if (action === 'clear-reading') {
         await api.clearReadingList();
         lastReadingCount = 0;
@@ -799,7 +1042,17 @@ export function wireInternal() {
       }
     });
 
-    host.addEventListener('change', (e) => {
+    host.addEventListener('change', async (e) => {
+      if (e.target.id === 'bookmark-folder-filter') {
+        uiState.bookmarkFolder = e.target.value;
+        await renderInternalPage();
+        return;
+      }
+      if (e.target.id === 'history-from' || e.target.id === 'history-to') {
+        uiState[e.target.id === 'history-from' ? 'historyFrom' : 'historyTo'] = e.target.value;
+        renderInternalPage();
+        return;
+      }
       const check = e.target.closest('.row-check');
       if (!check) return;
       const row = check.closest('.internal-row');
@@ -813,6 +1066,20 @@ export function wireInternal() {
     });
 
     host.addEventListener('input', (e) => {
+      if (e.target.id === 'history-domain') {
+        uiState.historyDomain = e.target.value;
+        clearTimeout(uiState.timer);
+        uiState.timer = setTimeout(async () => {
+          await renderInternalPage();
+          // The filter row is re-rendered, so put the caret back where it was.
+          const input = $('#history-domain');
+          if (input) {
+            input.focus();
+            input.setSelectionRange(input.value.length, input.value.length);
+          }
+        }, 300);
+        return;
+      }
       if (e.target.id !== 'internal-search') return;
       const page = store.internalPage ?? 'history';
       if (page === 'history') uiState.historyQuery = e.target.value;

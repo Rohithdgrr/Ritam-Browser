@@ -36,6 +36,13 @@
 |---------|----------|------------|
 | Creating WebView2 controller on UI thread can deadlock | Make tab navigation async; perform creation through Tauri's async runtime | Platform-specific behavior needs native testing |
 
+### 1.6 Document Generation Engine
+
+| Problem | Solution | Limitation |
+|---------|----------|------------|
+| WorkAny is a full Tauri app, not an npm library, and its API is unauthenticated on all interfaces | Supervise it as an optional loopback sidecar only after upstream adds loopback binding, bearer auth, CORS removal and path containment; otherwise report generation unavailable | No engine is bundled yet; scaffold is shipped and disabled |
+| Generated files must not escape the app data directory | Stage per job, select only allowlisted extensions, reject symlinks/escapes, cap at 64 MB and promote with an atomic rename | Website serving still needs a scoped origin |
+
 ---
 
 ## 2. Privacy & Data
@@ -76,6 +83,7 @@
 | Arbitrary paths could exfiltrate or clobber files | Only paths returned by `detect_installed_browsers` are accepted; writes go to the active profile only | A profile created after detection needs a re-scan |
 | Passwords cannot be read (DPAPI / Keychain / NSS) | Report passwords as skipped with the reason in the UI and in the report | Password import would require reimplementing each OS crypto store |
 | A source can be partly malformed | Each category reports imported/skipped counts and warnings instead of failing the whole import | No per-item log of skipped URLs |
+| Bookmark folders were flattened by import | Chromium and Safari parsers carry the folder path; Ritam stores it on the bookmark row and includes it in search and export | Netscape HTML and Firefox imports arrive unfiled |
 
 ---
 
@@ -85,15 +93,24 @@
 
 | Problem | Solution | Limitation |
 |---------|----------|------------|
-| System WebView does not expose full Chromium tooling | Provide supported inspection and task state observable to shell | CDP, request interception, response mocking, extensions, per-tab CPU/memory need different engine |
+| System WebView does not expose full Chromium tooling | Provide a page-level inspector (`govind://inspector`): fetch/XHR capture, console, errors, DOM snapshots, explicit native replay and page-side mock rules | No CDP or browser-level interception; forbidden headers, pre-start requests and non-JavaScript loads are invisible, and Linux has no capture channel |
 
-### 3.2 Translation Service
+### 3.2 Developer Workbench
+
+| Problem | Solution | Limitation |
+|---------|----------|------------|
+| A page could feed fake data into the inspector | Capture is off until the user starts it; the page can report values but never invoke a command; every field is bounded and non-http(s) URLs are dropped | A malicious page can still emit misleading values while capture is on — treat the report as untrusted input |
+| Capturing everything would fill memory or disk | Bounded in-memory buffers (500 requests, 300 console, 100 errors, 64 KB bodies, 200 KB DOM), cleared when capture starts and never persisted | Older entries are dropped once a buffer is full |
+| Replay could be abused to reach internal services | Replay is explicit, http(s)-only, runs from the app process with a timeout and size cap, and does not inherit page cookies | It is still a native request made on the user's behalf; it is not a sandbox |
+| Mocking responses without an interception engine | Patch fetch/XHR page-side with per-tab URL-substring rules and a visible active-state counter | Only JavaScript-initiated requests in the target tab, and only while capture is on |
+
+### 3.3 Translation Service
 
 | Problem | Solution | Limitation |
 |---------|----------|------------|
 | Translation requires sending page text to external service | Make endpoint configurable; send extracted text only after explicit user action; require HTTPS | Endpoint receives translated text; authentication not supported |
 
-### 3.3 Content Rendering
+### 3.4 Content Rendering
 
 | Problem | Solution | Limitation |
 |---------|----------|------------|
@@ -116,9 +133,9 @@
 
 | Category | Issue Count | Primary Solution |
 |----------|-------------|------------------|
-| Architecture | 5 | Child webviews, async operations, native menus |
+| Architecture | 6 | Child webviews, async operations, native menus, gated generation sidecar |
 | Privacy/Data | 6 | InPrivate storage, URL-scheme labels, profile-scoped schema, origin-gated auto-fill, read-only imports |
-| Engine | 3 | Observable state, configurable services, CSS fallbacks |
+| Engine | 4 | Observable state, page-level inspector, configurable services, CSS fallbacks |
 | Development | 1 | localStorage fallback |
 
 ---

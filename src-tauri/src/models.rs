@@ -44,6 +44,14 @@ pub struct Bookmark {
     pub is_favorite: i64,
     pub sort_order: i64,
     pub created_at: i64,
+    /// Comma-separated, normalised by the backend.
+    #[serde(default)]
+    pub tags: String,
+    #[serde(default)]
+    pub notes: String,
+    /// Optional folder name, used by bookmark search.
+    #[serde(default)]
+    pub folder: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +84,9 @@ pub struct Download {
     pub status: String,
     pub created_at: i64,
     pub completed_at: Option<i64>,
+    /// "clean" | "threat" | "error" | "unavailable" | "" (not scanned).
+    #[serde(default)]
+    pub scan_status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

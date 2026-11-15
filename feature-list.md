@@ -22,7 +22,10 @@ This document provides a comprehensive inventory of all features planned for Rit
 | **Embedded WebViews** | Native child webviews (one per tab) within a single window using Tauri's `Window::add_child` API | ✅ Complete |
 | **Tab Management** | Create, activate, close, duplicate, pin, reorder, and group tabs | ✅ Complete |
 | **Tab Context Menu** | Right-click actions: reload, duplicate, open in private, pin/unpin, mute/unmute, add to group, remove from group, close, close others, close to the right | ✅ Complete |
-| **Recently Closed Tabs** | Persisted across restarts (last 20 entries; private tabs never recorded) | ✅ Complete |
+| **Split View** | Two tabs side by side; the right pane follows the most recently used other tab and can be swapped | ✅ Complete |
+| **Tab Sleeping** | Idle tabs release their webview after a user-set interval and reload when activated | ✅ Complete |
+| **Recently Closed Tabs** | Persisted across restarts (last 20 entries; private tabs never recorded); undo centre restores tab and group | ✅ Complete |
+| **Smart Tab Suggestions** | Suggests grouping three or more loose tabs from one site, and closing duplicate URLs | ✅ Complete |
 | **Navigation Controls** | Back, forward, reload, home buttons in toolbar | ✅ Complete |
 | **Address Bar (Omnibar)** | Real-time URL display, search integration, engine selection | ✅ Complete |
 | **Page Titles** | Live page titles displayed in tabs and window | ✅ Complete |
@@ -67,9 +70,19 @@ This document provides a comprehensive inventory of all features planned for Rit
 |---------|-------------|--------|
 | **Workspaces** | Create, switch, rename, delete; each with independent tabs | ✅ Complete |
 | **Bookmarks** | Add, delete, favorite with sidebar and home page display | ✅ Complete |
+| **Bookmark Tags** | Up to 8 comma-separated tags per bookmark, edited from `govind://bookmarks` | ✅ Complete |
+| **Bookmark Notes** | A personal note (1000 characters) attached to any bookmark | ✅ Complete |
+| **Bookmark Folders** | Optional folder label per bookmark; Chromium/Safari imports keep their folder path | ✅ Complete |
+| **Bookmark Search** | One search box matches title, URL, tags, notes and folder, with a folder filter | ✅ Complete |
 | **Favorites** | Quick-access grid on home page | ✅ Complete |
 | **History** | Recorded, searchable, deletable, clearable | ✅ Complete |
-| **Downloads** | Engine interception, list view, per-item delete, clear all | ✅ Complete |
+| **Advanced History Search** | Keyword, domain and date-range filters, grouped by day or domain | ✅ Complete |
+| **Downloads** | Engine interception, list view, per-item delete, clear all, download again | ✅ Complete |
+| **Download Scan Integration** | Windows Defender scans finished files on request or before opening; threats warn and block the open, nothing is deleted | ✅ Complete (Windows) |
+| **Website Time Tracking** | 30-second heartbeat per active-tab site while the window has focus, stored per profile and day | ✅ Complete |
+| **Browsing Statistics** | `govind://statistics` shows today / 7-day / 30-day totals, a per-day breakdown and the busiest sites | ✅ Complete |
+| **Custom New Tab Dashboard** | Clock, time-today and website-shortcut widgets; search stays in the page | ✅ Complete |
+| **Website Shortcuts** | Up to 12 custom quick buttons shown on the new-tab page | ✅ Complete |
 | **Scratchpad** | Local notes saved to device | ✅ Complete |
 | **Reading List** | Offline text snapshots of pages | ✅ Complete |
 | **Tab Groups** | Named, collapsible, persistent tab grouping | ✅ Complete |
@@ -130,6 +143,7 @@ This document provides a comprehensive inventory of all features planned for Rit
 | **Bookmark Export** | Netscape HTML format | ✅ Complete |
 | **Encrypted Backup** | `.gbak` files with PBKDF2 + AES-256-GCM | ✅ Complete |
 | **Backup Restore** | Merge restore with conflict handling | ✅ Complete |
+| **Backup Coverage** | Bookmarks (including tags, notes and folders), history, tabs, notes, downloads and settings | ✅ Complete |
 | **Task Manager** | `govind://task-manager` showing per-tab states | ✅ Complete |
 
 ### 10. Settings & Configuration
@@ -141,6 +155,9 @@ This document provides a comprehensive inventory of all features planned for Rit
 | **Theme Toggle** | Light/dark mode switch | ✅ Complete |
 | **Settings Search** | Filter box to find settings quickly | ✅ Complete |
 | **Jump Rail Navigation** | Left-side navigation for settings sections | ✅ Complete |
+| **Download Settings** | Sort files into folders, rename with `{name}`/`{ext}`/`{host}`/`{date}`, scan on open | ✅ Complete |
+| **New Tab Settings** | Choose dashboard widgets and manage website shortcuts | ✅ Complete |
+| **Keyboard Settings** | Record custom combos for browser actions, validated by the backend | ✅ Complete |
 
 ### 11. Internal Pages
 
@@ -150,7 +167,9 @@ This document provides a comprehensive inventory of all features planned for Rit
 | Downloads | `govind://downloads` | ✅ Complete |
 | Bookmarks | `govind://bookmarks` | ✅ Complete |
 | Reading List | `govind://reading-list` | ✅ Complete |
-| Recently Closed | `govind://recently-closed` | ✅ Complete |
+| Undo Centre | `govind://recently-closed` | ✅ Complete |
+| Statistics | `govind://statistics` | ✅ Complete |
+| Inspector | `govind://inspector` | ✅ Complete (Windows/WebView2) |
 | Task Manager | `govind://task-manager` | ✅ Complete |
 | Media Controls | `govind://media-controls` | ✅ Complete |
 | Settings | `govind://settings` | ✅ Complete |
@@ -185,6 +204,30 @@ This document provides a comprehensive inventory of all features planned for Rit
 | Alt+←/→ | Back/Forward | ✅ Complete |
 | F11 | Fullscreen | ✅ Complete |
 | Esc | Close palette/panels/menus | ✅ Complete |
+| Custom combos | Settings → Keyboard records a combo, shows the built-in as a placeholder, rejects conflicts, and registers the override as a native accelerator so it also works while a page has focus | ✅ Complete |
+
+### 14. Developer Workbench
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Network Inspector** | `govind://inspector` lists fetch, XHR and resource requests for a chosen tab, newest first | ✅ Complete (Windows/WebView2) |
+| **Request Details** | Method, URL, status, duration, type, content type, size and start time | ✅ Complete |
+| **Response Viewer** | Captured text/JSON bodies are shown with JSON pretty-printing | ✅ Complete |
+| **cURL Export** | Copy a captured request as a shell-safe cURL command | ✅ Complete |
+| **Fetch Export** | Copy a captured request as a JavaScript `fetch()` call | ✅ Complete |
+| **API Request Replay** | Replay a captured method/URL/headers/body from Rust with a 25-second timeout and a 200 KB response cap | ✅ Complete |
+| **Request Mocking** | Per-tab URL-substring rules return a synthetic status/body for fetch and XHR while capture is on | ✅ Complete |
+| **Console Capture** | `console.log/info/warn/error/debug` output is recorded with level and time | ✅ Complete |
+| **Error Monitoring** | Uncaught exceptions and unhandled promise rejections appear in the Errors tab | ✅ Complete |
+| **DOM Snapshot** | Serialises the rendered DOM (up to 200 KB) as display-only text | ✅ Complete |
+
+### 15. Local File Viewer
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **File Previews** | `govind://viewer` opens images, video, PDF, DOCX, XLSX, PPTX, CSV, JSON, Markdown and text; files are read through a 64 MB, extension-allowlisted Rust command | ✅ Complete |
+| **Office Parsing** | DOCX and XLSX are parsed in the renderer with a small built-in ZIP reader; PPTX shows a slide-by-slide text outline (not slide design) | ✅ Complete |
+| **File Picker** | Native dialog filtered to viewable extensions; preview mode explains that local files need the installed app | ✅ Complete |
 
 ---
 
@@ -200,7 +243,17 @@ This document provides a comprehensive inventory of all features planned for Rit
 
 **Note:** Network filtering relies on a Windows-specific request hook that is not available on Linux or other platforms. The hook does not support response body modification.
 
-### 2. Certificate Security
+### 2. WorkAny Generation
+
+| Feature | Limitation | Status |
+|---------|------------|--------|
+| **Generation Dialog** | Prompt, type picker (PPTX/XLSX/DOCX/website), progress and cancel; reachable from the palette and viewer | 🟡 Scaffold |
+| **Native Supervisor** | Rust can supervise a hardened loopback sidecar, stream SSE progress, stage output and promote the artifact atomically | 🟡 Scaffold |
+| **Engine Availability** | No WorkAny binary is bundled. Generation reports “Not available” until `RITAM_WORKANY_API` or a loopback service is supplied; upstream must add loopback binding, bearer auth, CORS removal and path containment first | 🟡 Blocked upstream |
+
+**Note:** See [ADR-008](docs/ADR-008-workany-generation.md). The UI never claims generation works when the engine is absent, and no provider keys cross into the renderer.
+
+### 3. Certificate Security
 
 | Feature | Limitation | Status |
 |---------|------------|--------|
@@ -208,7 +261,7 @@ This document provides a comprehensive inventory of all features planned for Rit
 
 **Note:** The browser does not inspect TLS certificates presented by servers. The security indicator reflects HTTP vs HTTPS in the URL.
 
-### 3. Per-Tab Isolation
+### 4. Per-Tab Isolation
 
 | Feature | Limitation | Status |
 |---------|------------|--------|
@@ -217,14 +270,14 @@ This document provides a comprehensive inventory of all features planned for Rit
 
 **Note:** Private tabs use WebView2 InPrivate storage with full isolation. Regular tabs share storage within a profile.
 
-### 4. Translation
+### 5. Translation
 
 | Feature | Limitation | Status |
 |---------|------------|--------|
 | **Page Translation** | Requires user-configured LibreTranslate endpoint | 🟡 Partial |
 | **Endpoint Authentication** | API keys and authenticated endpoints not supported | 🟡 Partial |
 
-### 5. Reader Mode
+### 6. Reader Mode
 
 | Feature | Limitation | Status |
 |---------|------------|--------|
@@ -232,11 +285,21 @@ This document provides a comprehensive inventory of all features planned for Rit
 
 **Note:** Reader mode extracts text from common `<article>`, `<main>`, and similar elements. It is not a complete readability parser.
 
-### 6. Find in Page
+### 7. Find in Page
 
 | Feature | Limitation | Status |
 |---------|------------|--------|
 | **Match Count** | Requires Windows/WebView2 message channel | 🟡 Partial |
+
+### 8. Developer Workbench
+
+| Feature | Limitation | Status |
+|---------|------------|--------|
+| **Capture Scope** | Requests are recorded by page instrumentation, so browser-level loads that never reach JavaScript and requests made before capture starts are not listed | 🟡 Partial |
+| **Header Visibility** | Only headers visible to page JavaScript are captured; `Cookie` and other forbidden request headers are hidden by the engine | 🟡 Partial |
+| **Response Bodies** | Only fetch/XHR responses smaller than the 64 KB per-request cap and of a textual type are captured; static resources have timings but no body | 🟡 Partial |
+| **Platform Support** | Capture needs WebView2's web-message channel, so the inspector is unavailable on Linux and mobile | 🟡 Partial |
+| **Replay Identity** | Replay runs from the Ritam process, not the page, so page cookies and origin are not used | 🟡 Partial |
 
 ---
 
@@ -246,9 +309,7 @@ This document provides a comprehensive inventory of all features planned for Rit
 
 | Feature | Priority | Notes |
 |---------|----------|-------|
-| **Split View** | Not in current milestone | Side-by-side tab view |
-| **Tab Sleeping** | Not in current milestone | Automatic tab resource release |
-| **Download Resume** | Not in current milestone | Resume interrupted downloads |
+| **Download Resume** | Not implemented | An interrupted transfer can be started again, but not resumed byte-for-byte |
 
 ### 2. Platform & Integration
 
@@ -285,7 +346,7 @@ This document provides a comprehensive inventory of all features planned for Rit
 | Feature | Priority | Notes |
 |---------|----------|-------|
 | **Protocol Lab** | Skipped | Per product decision |
-| **Network Request Mocking** | Not available | Requires CDP |
+| **Full DevTools Parity** | Not available | No CDP access; the workbench is page-level only |
 | **Real-Time Threat Intelligence** | Not available | Uses community filter lists only |
 | **Password Breach Monitoring** | Not available | No cloud connectivity |
 | **AI Features** | Not available | No AI services integrated |
@@ -329,6 +390,10 @@ This document provides a comprehensive inventory of all features planned for Rit
 6. **PDF Annotation:** Not supported; handled by system WebView
 7. **Forced Dark Mode:** May render some sites incorrectly
 8. **Storage Deletion:** Some storage may be blocked by open pages
+9. **Inspector Capture:** Page-level instrumentation cannot see requests made before Start, browser-level loads, or bodies over the per-request cap; Linux has no capture channel
+10. **Download Scanning:** Uses Microsoft Defender on Windows only; other platforms report scanning as unavailable
+11. **Bookmark Folders:** Assigned in Ritam or read from Chromium/Safari imports; Netscape HTML and Firefox imports arrive unfiled
+12. **Request Mocking:** Applies to fetch/XHR in the target tab while capture is on; it cannot rewrite responses the engine fetches itself
 
 ---
 
@@ -367,6 +432,7 @@ ritam-browser/
 | `docs/ENGINE_SPIKE.md` | Engine feasibility analysis |
 | `docs/ADR-006-engine-strategy.md` | Engine architecture decision |
 | `docs/ADR-007-embedded-webviews.md` | WebView integration design |
+| `docs/ADR-008-workany-generation.md` | WorkAny generation decision and security gates |
 
 ---
 

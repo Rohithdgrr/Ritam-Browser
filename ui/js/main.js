@@ -1,13 +1,13 @@
 /** Ritam Browser — bootstrap, event wiring and keyboard shortcuts. */
 
-import { $, $$, toast } from './lib/dom.js';
+import { $, $$, localDay, toast } from './lib/dom.js';
 import * as api from './services/ipc.js';
 import {
   store, initStore, createTab, createPrivateTab, closeTab, activateTab, togglePinTab, reorderTab,
   navigate, openInternalPage, goHome, goBack, goForward, reloadTab, createWorkspace,
   switchWorkspace, deleteWorkspace, toggleBookmarkCurrent, refreshBookmarks, syncNativeViews,
   refreshTabs, applyTabMeta, internalNavStep, setTabGroup, reopenClosedTab, toggleReaderMode,
-  rememberMutedSite, mutedSiteKey,
+  rememberMutedSite, mutedSiteKey, toggleSplitView, sleepInactiveTabs,
 } from './state/store.js';
 import {
   renderAll, renderView, renderToolbar, renderTabs, renderSidebarFavorites,
@@ -21,9 +21,12 @@ import { reloadWebView, historyWebView } from './views/browser.js';
 import { initOmnibar } from './views/omnibar.js';
 import { initProfiles } from './views/profiles.js';
 import { openViewerPicker } from './views/viewer.js';
+import { openGenerationDialog } from './views/generation.js';
 import { initQuickPopovers, openQuick } from './views/quick-popovers.js';
 import { isNative } from './services/ipc.js';
 import { displayUrl, HOME_URL, schemeOf, hostOf } from './lib/url.js';
+import { duplicateTabGroups, isAiTab } from './lib/tabs.js';
+import { matchesShortcut } from './lib/shortcuts.js';
 
 const pendingTranslations = new Map();
 const pendingSnapshots = new Map();
@@ -96,7 +99,12 @@ const actions = {
     const tab = await reopenClosedTab(closed.id);
     if (tab) { await renderAll(); focusOmnibar(); }
   },
-  'close-tab': async () => { if (store.activeTabId) { await closeTab(store.activeTabId); await renderAll(); } },
+  'close-tab': async () => {
+    if (!store.activeTabId) return;
+    if (isAiTab(store.activeTab())) { toast('The AI Workspace tab is fixed.'); return; }
+    await closeTab(store.activeTabId);
+    await renderAll();
+  },
   'palette': async () => { isPaletteOpen() ? closePalette() : await openPalette(); },
   'focus-omnibar': async () => { focusOmnibar(); },
   'reload': async () => {
@@ -171,7 +179,47 @@ const actions = {
   },
   'profiles': async () => { await openInternal('profiles'); },
   'autofill-settings': async () => { await openInternal('autofill'); },
+  'split-view': async () => {
+    if (!isNative()) { toast('Split view is available in the installed app.'); return; }
+    const tab = store.activeTab();
+    if (!tab || store.isInternalTab(tab) || store.isHomeTab(tab)) {
+      toast('Open a website before splitting the view.');
+      return;
+    }
+    const wasSplit = !!store.splitTabId;
+    const target = await toggleSplitView();
+    if (store.splitTabId) toast(`Split view: “${target?.title ?? 'tab'}” on the right.`);
+    else toast(wasSplit ? 'Split view closed.' : 'Open a second website tab to split with.');
+    await renderAll();
+  },
+  'undo-center': async () => { await openInternal('recently-closed'); },
+  'close-duplicates': async () => {
+    let closed = 0;
+    for (const group of duplicateTabGroups(store.tabs)) {
+      const keep = group.find((entry) => entry.id === store.activeTabId) ?? group[0];
+      for (const entry of group) {
+        if (entry.id === keep.id) continue;
+        await closeTab(entry.id);
+        closed += 1;
+      }
+    }
+    if (closed === 0) { toast('No duplicate tabs.'); return; }
+    await renderAll();
+    toast(`Closed ${closed} duplicate tab${closed === 1 ? '' : 's'}.`);
+  },
   'tab-search': async () => { await openPalette({ tabsOnly: true }); },
+  'statistics': async () => { await openInternal('statistics'); },
+  'inspector': async () => {
+    // Keep the page under inspection alive: open the workbench beside it in a
+    // new tab instead of replacing the web page with an internal page.
+    const tab = store.activeTab();
+    if (tab && !store.isInternalTab(tab) && !store.isHomeTab(tab)) {
+      await createTab('govind://inspector');
+      await renderAll();
+      return;
+    }
+    await openInternal('inspector');
+  },
   'task-manager': async () => { await openInternal('task-manager'); },
   'media-controls': async () => { await openMediaControls(); },
   'reading-list': async () => { await openInternal('reading-list'); },
@@ -468,6 +516,11 @@ function wireTabContextMenu() {
     if (!item) return;
     e.preventDefault();
     ctxTabId = item.getAttribute('data-tab');
+    const fixed = isAiTab(store.tabs.find((tab) => tab.id === ctxTabId));
+    menu.querySelectorAll('[data-tab-action]').forEach((button) => {
+      const action = button.getAttribute('data-tab-action');
+      button.hidden = fixed && ['duplicate', 'pin', 'group', 'ungroup', 'close'].includes(action);
+    });
     const muteItem = $('#tab-menu-mute');
     if (muteItem) muteItem.firstChild.textContent = `${store.mutedTabs.has(ctxTabId) ? 'Unmute' : 'Mute'} tab `;
     menu.classList.remove('hidden');
@@ -547,8 +600,8 @@ async function closeTabsAround(tabId, scope) {
     .sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned) || a.sort_order - b.sort_order);
   const index = ordered.findIndex((tab) => tab.id === tabId);
   const targets = scope === 'right'
-    ? ordered.slice(index + 1)
-    : ordered.filter((tab) => tab.id !== tabId);
+    ? ordered.slice(index + 1).filter((tab) => !isAiTab(tab))
+    : ordered.filter((tab) => tab.id !== tabId && !isAiTab(tab));
   for (const tab of targets) await closeTab(tab.id);
   await refreshTabs();
   store.activeTabId = tabId;
@@ -560,7 +613,7 @@ async function closeUnpinnedTabs(tabId) {
   if (!contextTab) return;
   const pinned = store.tabs.filter((tab) => tab.is_pinned);
   const keepId = pinned[0]?.id ?? tabId;
-  const targets = store.tabs.filter((tab) => !tab.is_pinned && tab.id !== keepId);
+  const targets = store.tabs.filter((tab) => !tab.is_pinned && tab.id !== keepId && !isAiTab(tab));
   for (const tab of targets) await closeTab(tab.id);
   await refreshTabs();
   if (store.tabs.some((tab) => tab.id === keepId)) await activateTab(keepId);
@@ -621,6 +674,27 @@ async function boot() {
   await renderAll();
   await syncNativeViews();
 
+  // Count how long each site stays in the active tab (30 s heartbeat). Window
+  // focus is tracked natively: the shell document loses DOM focus when a child
+  // webview is active, so document.hasFocus() would stop the clock on real pages.
+  let windowHasFocus = true;
+  api.watchWindowFocus((focused) => { windowHasFocus = focused; }).catch(() => {});
+  setInterval(() => {
+    if (!isNative() || document.hidden || !windowHasFocus) return;
+    const tab = store.activeTab();
+    if (!tab || store.isInternalTab(tab) || store.isHomeTab(tab)) return;
+    const host = mutedSiteKey(hostOf(tab.url));
+    if (host) api.recordSiteTime(host, 30, localDay()).catch(() => {});
+  }, 30_000);
+
+  // Suspend idle tabs once a minute when the user enabled tab sleeping.
+  setInterval(async () => {
+    const minutes = Number(store.settings.tab_sleep_minutes ?? 0);
+    if (!minutes || !isNative()) return;
+    const slept = await sleepInactiveTabs(minutes);
+    if (slept) renderTabs();
+  }, 60_000);
+
   if (!isNative() && !sessionStorage.getItem('govind.preview.notified')) {
     sessionStorage.setItem('govind.preview.notified', '1');
     setTimeout(() => toast('Preview mode: web pages load in an embedded frame where sites allow it. Install the app for full native browsing.'), 600);
@@ -653,6 +727,7 @@ function wireToolbar() {
   $('#btn-reader-mode')?.addEventListener('click', () => actions['reader-mode']());
   $('#btn-read-aloud')?.addEventListener('click', () => actions['read-aloud']());
   $('#btn-media-controls')?.addEventListener('click', (event) => openQuick('media', event.currentTarget));
+  $('#btn-split-view')?.addEventListener('click', () => actions['split-view']());
 
   initOmnibar({ onNavigate: doNavigate });
 
@@ -830,7 +905,13 @@ function wireSidebar() {
     const muteId = e.target.closest('[data-mute-tab]')?.getAttribute('data-mute-tab');
     if (muteId) { e.stopPropagation(); await toggleTabMute(muteId); return; }
     const closeId = e.target.closest('[data-close-tab]')?.getAttribute('data-close-tab');
-    if (closeId) { e.stopPropagation(); await closeTab(closeId); await renderAll(); return; }
+    if (closeId) {
+      e.stopPropagation();
+      if (isAiTab(store.tabs.find((tab) => tab.id === closeId))) { toast('The AI Workspace tab is fixed.'); return; }
+      await closeTab(closeId);
+      await renderAll();
+      return;
+    }
     const pinId = e.target.closest('[data-pin-tab]')?.getAttribute('data-pin-tab');
     if (pinId) { e.stopPropagation(); await togglePinTab(pinId); await renderAll(); return; }
     const tabId = e.target.closest('[data-tab]')?.getAttribute('data-tab');
@@ -842,6 +923,7 @@ function wireSidebar() {
     const tabId = e.target.closest('[data-tab]')?.getAttribute('data-tab');
     if (!tabId) return;
     if (e.key === 'Enter') { await activateTab(tabId); await renderAll(); }
+    else if (isAiTab(store.tabs.find((tab) => tab.id === tabId))) { toast('The AI Workspace tab is fixed.'); }
     else { await closeTab(tabId); await renderAll(); }
   });
 
@@ -855,10 +937,21 @@ function wireSidebar() {
 // ── Global events (document-level custom events + window) ─────────────
 function wireGlobalEvents() {
   document.addEventListener('govind:activate-tab', async (e) => {
+    // Tab search reaches tabs in other workspaces too — switch first.
+    if (!store.tabs.some((tab) => tab.id === e.detail)) {
+      const all = await api.listTabs().catch(() => []);
+      const target = all.find((tab) => tab.id === e.detail);
+      if (target && target.workspace_id !== store.activeWorkspaceId) {
+        await switchWorkspace(target.workspace_id);
+      }
+    }
     await activateTab(e.detail);
     await renderAll();
   });
   document.addEventListener('govind:navigate', (e) => doNavigate(e.detail));
+  document.addEventListener('govind:generate', () => {
+    openGenerationDialog().catch((error) => toast(`Could not open generation: ${error?.message ?? error}`));
+  });
   document.addEventListener('govind:open-internal', async (e) => {
     await openInternal(String(e.detail ?? ''));
   });
@@ -1040,7 +1133,20 @@ async function wireNativeEvents() {
     const { url, path, success, isPrivate } = event.payload ?? {};
     if (!url || isPrivate) return;
     await api.recordDownload({ url, filename: fileNameOf(path) || 'download', destination: path }).catch(() => {});
-    if (success) toast('Download finished.');
+    if (!success) return;
+    toast('Download finished.');
+    if (path && store.settings.download_scan === 'true') {
+      toast('Scanning the download…');
+      try {
+        const result = await api.scanDownload(path);
+        if (result.status === 'clean') toast('Scan finished: no threats found.');
+        else if (result.status === 'threat') toast('Warning: the scanner flagged this file. It was not deleted — open it only if you trust the source.');
+        else if (result.status === 'unavailable') toast(result.detail || 'File scanning is not available on this system.');
+        else toast(`Scan could not finish: ${result.detail || 'unknown error'}`);
+      } catch (error) {
+        toast(`Scan failed: ${error?.message ?? error}`);
+      }
+    }
   });
 
   // A page asked for a new window: open it as a tab instead.
@@ -1060,10 +1166,30 @@ function fileNameOf(path) {
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────
+function customShortcuts() {
+  try {
+    const parsed = JSON.parse(store.settings.custom_shortcuts ?? '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function wireShortcuts() {
   window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
+
+    // User-defined combos win over the built-in defaults.
+    for (const [actionId, combo] of Object.entries(customShortcuts())) {
+      if (!matchesShortcut(e, combo)) continue;
+      const handler = actions[actionId];
+      if (handler) {
+        e.preventDefault();
+        handler();
+        return;
+      }
+    }
 
     if (mod && key === 'k') { e.preventDefault(); actions.palette(); return; }
     if (mod && key === 'b') { e.preventDefault(); actions['toggle-sidebar'](); return; }
@@ -1161,11 +1287,18 @@ function buildPaletteCommands() {
     { title: 'Picture-in-Picture on video', hint: 'Alt Shift P', keywords: ['pip', 'floating video'], run: run(async () => toast('Hover a video and click PiP, or press Alt+Shift+P while the page is focused.')) },
     { title: 'Toggle Fullscreen', hint: 'F11', keywords: ['immersive', 'maximize'], run: run(actions.fullscreen) },
     { title: 'Inspect Page (DevTools)', hint: 'Engine', keywords: ['developer', 'console', 'debug'], run: run(actions.inspect) },
-    { title: 'Search Tabs', hint: 'Ctrl Shift A', keywords: ['switch', 'tab search', 'quick'], run: run(actions['tab-search']) },
+    { title: 'Search Tabs', hint: 'Ctrl Shift A', keywords: ['switch', 'tab search', 'quick', 'workspace'], run: run(actions['tab-search']) },
+    { title: 'Split View', hint: 'Two tabs side by side', keywords: ['side by side', 'panes', 'compare'], run: run(actions['split-view']) },
+    { title: 'Undo Centre', hint: 'govind://recently-closed', keywords: ['undo', 'closed tabs', 'restore', 'groups'], run: run(actions['undo-center']) },
+    { title: 'Close Duplicate Tabs', hint: 'Same URL', keywords: ['duplicates', 'dedupe', 'clean up'], run: run(actions['close-duplicates']) },
     { title: 'Print / Save as PDF', hint: 'Ctrl P', keywords: ['print', 'pdf', 'paper'], run: run(actions.print) },
     { title: 'Save Page for Later', hint: 'Reading list', keywords: ['read later', 'offline', 'article'], run: run(actions['save-for-later']) },
     { title: 'Open Reading List', hint: 'govind://reading-list', keywords: ['read later', 'articles'], run: run(actions['reading-list']) },
-    { title: 'Open File Viewer', hint: 'govind://viewer', keywords: ['preview', 'image', 'video', 'pdf', 'docx', 'xlsx', 'csv', 'json', 'markdown'], run: run(actions['file-viewer']) },
+    { title: 'Open AI Workspace', hint: 'Fixed tab', keywords: ['ai', 'workany', 'generate', 'slides', 'docs', 'website', 'web search'], run: run(async () => { const tab = store.tabs.find(isAiTab); if (tab) { await activateTab(tab.id); await renderAll(); } else { await openInternal('ai'); } }) },
+    { title: 'Open File Viewer', hint: 'govind://viewer', keywords: ['preview', 'image', 'video', 'pdf', 'docx', 'xlsx', 'pptx', 'csv', 'json', 'markdown'], run: run(actions['file-viewer']) },
+    { title: 'Generate Document…', hint: 'WorkAny', keywords: ['workany', 'slides', 'pptx', 'docx', 'xlsx', 'website', 'create', 'ai'], run: run(openGenerationDialog) },
+    { title: 'Browsing Statistics', hint: 'govind://statistics', keywords: ['time', 'usage', 'reports', 'sites'], run: run(actions.statistics) },
+    { title: 'Network Inspector', hint: 'govind://inspector', keywords: ['network', 'requests', 'console', 'errors', 'curl', 'fetch', 'replay', 'mock', 'dom', 'developer'], run: run(actions.inspector) },
     { title: 'Task Manager', hint: 'govind://task-manager', keywords: ['tabs', 'memory', 'audio'], run: run(actions['task-manager']) },
     { title: 'Toggle Guest Mode', hint: 'Private', keywords: ['guest', 'private', 'incognito'], run: run(actions['guest-mode']) },
     { title: 'Forget This Site…', hint: 'Cookies & storage', keywords: ['shred', 'forgetful browsing', 'cookies', 'storage', 'sign out'], run: run(actions['clear-site-data']) },

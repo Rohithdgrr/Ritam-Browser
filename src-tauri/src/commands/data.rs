@@ -23,9 +23,40 @@ fn row_to_bookmark(row: &rusqlite::Row) -> rusqlite::Result<Bookmark> {
         is_favorite: row.get(3)?,
         sort_order: row.get(4)?,
         created_at: row.get(5)?,
+        tags: row.get(6)?,
+        notes: row.get(7)?,
+        folder: row.get(8)?,
     })
 }
-const BOOKMARK_COLS: &str = "id, title, url, is_favorite, sort_order, created_at";
+const BOOKMARK_COLS: &str =
+    "id, title, url, is_favorite, sort_order, created_at, tags, notes, folder";
+
+/// Folder names are optional labels: trimmed, single-line and bounded.
+pub(crate) fn clean_folder(raw: &str) -> String {
+    raw.chars()
+        .filter(|ch| !ch.is_control())
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(60)
+        .collect()
+}
+
+/// Tags are stored as a comma-separated list: trimmed, de-duplicated, bounded
+/// and free of commas so search can split on them.
+pub(crate) fn clean_tags(raw: &str) -> String {
+    let mut seen: Vec<String> = Vec::new();
+    for tag in raw.split(',').map(|tag| tag.trim()) {
+        if tag.is_empty() || seen.len() >= 8 {
+            continue;
+        }
+        let value: String = tag.chars().take(24).collect();
+        if !seen.iter().any(|existing| existing.eq_ignore_ascii_case(&value)) {
+            seen.push(value);
+        }
+    }
+    seen.join(", ")
+}
 
 #[tauri::command]
 pub fn list_bookmarks(db: State<'_, DbState>) -> Result<Vec<Bookmark>, AppError> {
@@ -49,12 +80,14 @@ pub fn save_bookmark(
     title: Option<String>,
     url: String,
     is_favorite: Option<i64>,
+    folder: Option<String>,
 ) -> Result<Bookmark, AppError> {
     let target = validate_saved_url(&url)?;
     if target == crate::navigation::HOME_URL {
         return Err(AppError::InvalidInput("cannot bookmark the internal home page".into()));
     }
     let favorite = i64::from(is_favorite.unwrap_or(0) != 0);
+    let folder = clean_folder(&folder.unwrap_or_default());
     let clean_title: String = title
         .as_deref()
         .unwrap_or(&target)
@@ -71,12 +104,13 @@ pub fn save_bookmark(
     )?;
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "INSERT INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at, folder)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT(profile_id, url) DO UPDATE SET
            title = excluded.title,
-           is_favorite = MAX(bookmarks.is_favorite, excluded.is_favorite)",
-        params![id, profile, clean_title, target, favorite, order, now_ms()],
+           is_favorite = MAX(bookmarks.is_favorite, excluded.is_favorite),
+           folder = CASE WHEN excluded.folder = '' THEN bookmarks.folder ELSE excluded.folder END",
+        params![id, profile, clean_title, target, favorite, order, now_ms(), folder],
     )?;
     let bookmark = conn.query_row(
         &format!("SELECT {BOOKMARK_COLS} FROM bookmarks WHERE profile_id = ?1 AND url = ?2"),
@@ -95,6 +129,46 @@ pub fn delete_bookmark(db: State<'_, DbState>, bookmark_id: String) -> Result<bo
         params![bookmark_id, profile],
     )?;
     Ok(changed > 0)
+}
+
+#[tauri::command]
+pub fn update_bookmark_details(
+    db: State<'_, DbState>,
+    bookmark_id: String,
+    tags: Option<String>,
+    notes: Option<String>,
+    folder: Option<String>,
+) -> Result<Bookmark, AppError> {
+    let conn = db.conn();
+    let profile = profile(&conn)?;
+    if let Some(tags) = tags {
+        conn.execute(
+            "UPDATE bookmarks SET tags = ?1 WHERE id = ?2 AND profile_id = ?3",
+            params![clean_tags(&tags), bookmark_id, profile],
+        )?;
+    }
+    if let Some(notes) = notes {
+        let clean: String = notes.trim().chars().take(1000).collect();
+        conn.execute(
+            "UPDATE bookmarks SET notes = ?1 WHERE id = ?2 AND profile_id = ?3",
+            params![clean, bookmark_id, profile],
+        )?;
+    }
+    if let Some(folder) = folder {
+        conn.execute(
+            "UPDATE bookmarks SET folder = ?1 WHERE id = ?2 AND profile_id = ?3",
+            params![clean_folder(&folder), bookmark_id, profile],
+        )?;
+    }
+    conn.query_row(
+        &format!("SELECT {BOOKMARK_COLS} FROM bookmarks WHERE id = ?1 AND profile_id = ?2"),
+        params![bookmark_id, profile],
+        row_to_bookmark,
+    )
+    .map_err(|error| match error {
+        rusqlite::Error::QueryReturnedNoRows => AppError::NotFound("bookmark not found".into()),
+        other => AppError::Db(other),
+    })
 }
 
 #[tauri::command]
@@ -118,6 +192,27 @@ pub fn toggle_favorite(db: State<'_, DbState>, bookmark_id: String) -> Result<Bo
 
 // ── History ───────────────────────────────────────────────────────────
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folders_are_trimmed_bounded_and_single_line() {
+        assert_eq!(clean_folder("  Work\nDocs  "), "WorkDocs");
+        assert_eq!(clean_folder("   "), "");
+        assert_eq!(clean_folder(&"x".repeat(80)).chars().count(), 60);
+    }
+
+    #[test]
+    fn tags_are_trimmed_deduplicated_and_bounded() {
+        assert_eq!(clean_tags(" work , Work,  reading "), "work, reading");
+        assert_eq!(clean_tags(",,,"), "");
+        let many: String = (0..12).map(|i| format!("tag{i},")).collect();
+        assert_eq!(clean_tags(&many).split(", ").count(), 8);
+        assert_eq!(clean_tags(&"x".repeat(50)).chars().count(), 24);
+    }
+}
+
 fn row_to_history(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
     Ok(HistoryEntry {
         id: row.get(0)?,
@@ -128,34 +223,49 @@ fn row_to_history(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
     })
 }
 
+/// Escape LIKE wildcards so a search for "100%" does not match everything.
+fn like_pattern(value: &str) -> String {
+    format!(
+        "%{}%",
+        value.trim().to_lowercase().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    )
+}
+
+/// History search with optional advanced filters. `query` matches the title or
+/// URL, `domain` only the URL, and `from`/`to` are epoch milliseconds (0 = no
+/// bound). All parameters are optional so older callers keep working.
 #[tauri::command]
 pub fn search_history(
     db: State<'_, DbState>,
     query: Option<String>,
     limit: Option<i64>,
+    domain: Option<String>,
+    from: Option<i64>,
+    to: Option<i64>,
 ) -> Result<Vec<HistoryEntry>, AppError> {
-    let q = query.unwrap_or_default().trim().to_lowercase();
+    let q = query.unwrap_or_default();
+    let domain = domain.unwrap_or_default().trim().to_lowercase();
     let limit = limit.unwrap_or(100).clamp(1, 500);
+    let from = from.unwrap_or(0).max(0);
+    let to = to.unwrap_or(0).max(0);
     let conn = db.conn();
     let profile = profile(&conn)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, url, title, visited_at, visit_count FROM history
+         WHERE profile_id = ?1
+           AND (?2 = '' OR lower(url) LIKE ?3 ESCAPE '\\' OR lower(title) LIKE ?3 ESCAPE '\\')
+           AND (?4 = '' OR lower(url) LIKE ?5 ESCAPE '\\')
+           AND (?6 = 0 OR visited_at >= ?6)
+           AND (?7 = 0 OR visited_at <= ?7)
+         ORDER BY visited_at DESC LIMIT ?8",
+    )?;
+    let rows = stmt.query_map(
+        params![profile, q.trim(), like_pattern(&q), domain, like_pattern(&domain), from, to, limit],
+        row_to_history,
+    )?;
     let mut out = Vec::new();
-    if q.is_empty() {
-        let mut stmt = conn.prepare(
-            "SELECT id, url, title, visited_at, visit_count FROM history WHERE profile_id = ?1
-             ORDER BY visited_at DESC LIMIT ?2",
-        )?;
-        let rows = stmt.query_map(params![profile, limit], row_to_history)?;
-        for row in rows { out.push(row?); }
-    } else {
-        let pattern = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
-        let mut stmt = conn.prepare(
-            "SELECT id, url, title, visited_at, visit_count FROM history
-             WHERE profile_id = ?1
-               AND (lower(url) LIKE ?2 ESCAPE '\\' OR lower(title) LIKE ?2 ESCAPE '\\')
-             ORDER BY visited_at DESC LIMIT ?3",
-        )?;
-        let rows = stmt.query_map(params![profile, pattern, limit], row_to_history)?;
-        for row in rows { out.push(row?); }
+    for row in rows {
+        out.push(row?);
     }
     Ok(out)
 }
@@ -307,10 +417,11 @@ fn row_to_download(row: &rusqlite::Row) -> rusqlite::Result<Download> {
         status: row.get(7)?,
         created_at: row.get(8)?,
         completed_at: row.get(9)?,
+        scan_status: row.get(10)?,
     })
 }
 const DOWNLOAD_COLS: &str =
-    "id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at";
+    "id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at, scan_status";
 
 #[tauri::command]
 pub fn list_downloads(db: State<'_, DbState>) -> Result<Vec<Download>, AppError> {

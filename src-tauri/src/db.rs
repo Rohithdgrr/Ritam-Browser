@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 /// Embedded so the exact schema ships inside the binary.
 const SCHEMA: &str = include_str!("../migrations/0001_init.sql");
 /// Bumped when `migrate_profile_scope` has reshaped the database.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 4;
 /// Settings keys that describe the app, not a profile: they live in
 /// `shell_state` so switching profiles can never lose the active id.
 pub const SHELL_KEYS: &[&str] = &["active_profile_id", "active_workspace_id"];
@@ -75,6 +75,36 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<
         .any(|name| name == column))
 }
 
+/// Every workspace owns exactly one fixed AI workspace tab. It is kept first
+/// (pinned, sort -1) and the tab commands refuse to close or move it.
+pub fn ensure_ai_tab(conn: &Connection, workspace_id: &str) -> Result<(), AppError> {
+    let ids: Vec<String> = {
+        let mut stmt = conn.prepare(
+            "SELECT id FROM tabs WHERE workspace_id = ?1 AND url = ?2 ORDER BY sort_order ASC",
+        )?;
+        let rows = stmt.query_map([workspace_id, crate::navigation::AI_URL], |row| row.get(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+
+    if let Some((keep, extras)) = ids.split_first() {
+        conn.execute(
+            "UPDATE tabs SET title = 'AI Workspace', is_pinned = 1, sort_order = -1 WHERE id = ?1",
+            [keep],
+        )?;
+        for id in extras {
+            conn.execute("DELETE FROM tabs WHERE id = ?1", [id])?;
+        }
+        return Ok(());
+    }
+
+    conn.execute(
+        "INSERT INTO tabs (id, workspace_id, url, title, favicon_url, is_pinned, group_name, sort_order, created_at, last_active_at)
+         VALUES (?1, ?2, ?3, 'AI Workspace', NULL, 1, NULL, -1, ?4, 0)",
+        rusqlite::params![uuid::Uuid::new_v4().to_string(), workspace_id, crate::navigation::AI_URL, now_ms()],
+    )?;
+    Ok(())
+}
+
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -110,15 +140,26 @@ pub fn init(app: &AppHandle) -> Result<DbState, AppError> {
     }
     crate::commands::profiles::ensure_default_profile(&conn)?;
 
-    // First-run seeding: one workspace, no tabs (a home tab opens in the UI),
-    // three removable favorites.
+    // First-run seeding: one workspace with its fixed AI tab, three removable favorites.
     let workspace_count: i64 = conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0))?;
+    // Existing databases get the fixed AI tab too; it is rewritten in place on
+    // every launch so its title and first position cannot drift.
+    let workspaces: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT id FROM workspaces ORDER BY sort_order ASC")?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    for workspace_id in &workspaces {
+        ensure_ai_tab(&conn, workspace_id)?;
+    }
+
     if workspace_count == 0 {
         let ws_id = uuid::Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO workspaces (id, name, color, sort_order, created_at) VALUES (?1, 'Personal', '#4A6B5D', 0, ?2)",
             rusqlite::params![ws_id, now_ms()],
         )?;
+        ensure_ai_tab(&conn, &ws_id)?;
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_workspace_id', ?1)",
             rusqlite::params![ws_id],
@@ -147,9 +188,58 @@ pub fn init(app: &AppHandle) -> Result<DbState, AppError> {
 /// leaves a `.bak-0002` copy of the previous database next to it.
 pub fn apply_profile_scope(conn: &Connection, db_path: Option<&Path>) -> Result<(), AppError> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if version >= SCHEMA_VERSION {
-        return Ok(());
+    if version < 2 {
+        apply_v2(conn, db_path)?;
     }
+    if version < 3 {
+        apply_v3(conn)?;
+    }
+    if version < 4 {
+        apply_v4(conn)?;
+    }
+    Ok(())
+}
+
+/// Additive schema v4: bookmarks gain a folder name so search can cover the
+/// folder a bookmark was filed under. Nothing is rewritten.
+fn apply_v4(conn: &Connection) -> Result<(), AppError> {
+    if !has_column(conn, "bookmarks", "folder")? {
+        conn.execute(
+            "ALTER TABLE bookmarks ADD COLUMN folder TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    Ok(())
+}
+
+/// Additive schema v3: bookmark tags and notes, download scan status, and the
+/// per-site time ledger behind the statistics page. Nothing is rewritten, so
+/// no backup copy is needed.
+fn apply_v3(conn: &Connection) -> Result<(), AppError> {
+    for (table, column) in [
+        ("bookmarks", "tags"),
+        ("bookmarks", "notes"),
+        ("downloads", "scan_status"),
+    ] {
+        if !has_column(conn, table, column)? {
+            conn.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"),
+                [],
+            )?;
+        }
+    }
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS site_time (
+           profile_id TEXT NOT NULL, host TEXT NOT NULL, day TEXT NOT NULL,
+           seconds INTEGER NOT NULL DEFAULT 0,
+           PRIMARY KEY (profile_id, host, day));",
+    )?;
+    conn.pragma_update(None, "user_version", 3)?;
+    Ok(())
+}
+
+fn apply_v2(conn: &Connection, db_path: Option<&Path>) -> Result<(), AppError> {
     if let Some(path) = db_path {
         let backup = path.with_extension("db.bak-0002");
         if path.exists() && !backup.exists() {
@@ -239,7 +329,7 @@ pub fn apply_profile_scope(conn: &Connection, db_path: Option<&Path>) -> Result<
             tx.execute(&format!("UPDATE {table} SET profile_id = ?1"), [&active])?;
         }
     }
-    tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    tx.pragma_update(None, "user_version", 2)?;
     tx.commit()?;
     Ok(())
 }
@@ -257,4 +347,59 @@ fn rebuild_table(
         "DROP TABLE {table}; ALTER TABLE {table}_v2 RENAME TO {table}"
     ))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ai_test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE workspaces (id TEXT PRIMARY KEY, name TEXT, color TEXT, sort_order INTEGER, created_at INTEGER, profile_id TEXT);
+             CREATE TABLE tabs (
+               id TEXT PRIMARY KEY, workspace_id TEXT, url TEXT, title TEXT, favicon_url TEXT,
+               is_pinned INTEGER DEFAULT 0, group_name TEXT, sort_order INTEGER DEFAULT 0,
+               created_at INTEGER, last_active_at INTEGER
+             );
+             INSERT INTO workspaces VALUES ('ws', 'Personal', '#000', 0, 1, NULL);",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn ai_tab_is_created_once_and_stays_first() {
+        let conn = ai_test_db();
+        ensure_ai_tab(&conn, "ws").unwrap();
+        ensure_ai_tab(&conn, "ws").unwrap();
+        let (count, title, pinned, order): (i64, String, i64, i64) = conn
+            .query_row(
+                "SELECT COUNT(*), MAX(title), MAX(is_pinned), MAX(sort_order) FROM tabs WHERE workspace_id = 'ws'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(title, "AI Workspace");
+        assert_eq!(pinned, 1);
+        assert_eq!(order, -1);
+    }
+
+    #[test]
+    fn duplicate_ai_tabs_are_collapsed_to_one() {
+        let conn = ai_test_db();
+        ensure_ai_tab(&conn, "ws").unwrap();
+        conn.execute(
+            "INSERT INTO tabs (id, workspace_id, url, title, is_pinned, sort_order, created_at, last_active_at)
+             VALUES ('dupe', 'ws', ?1, 'ai', 0, 5, 1, 1)",
+            [crate::navigation::AI_URL],
+        )
+        .unwrap();
+        ensure_ai_tab(&conn, "ws").unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tabs WHERE url = ?1", [crate::navigation::AI_URL], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
 }

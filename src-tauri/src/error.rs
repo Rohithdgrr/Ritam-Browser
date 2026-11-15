@@ -8,6 +8,8 @@ pub enum AppError {
     InvalidInput(String),
     #[error("{0}")]
     NotFound(String),
+    #[error("{0}")]
+    Generation(String),
     #[error("window error: {0}")]
     Window(String),
     #[error("io error: {0}")]

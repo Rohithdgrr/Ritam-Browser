@@ -41,6 +41,9 @@ pub struct ExportSummary {
 pub struct ParsedBookmark {
     pub title: String,
     pub url: String,
+    /// Folder name when the source browser provided one (Chromium imports).
+    #[serde(default)]
+    pub folder: String,
 }
 
 // ── Netscape HTML parsing (pure, unit-tested) ─────────────────────────
@@ -131,7 +134,7 @@ pub fn parse_bookmarks_html(html: &str) -> Vec<ParsedBookmark> {
                 let url: String = url.chars().take(MAX_URL).collect();
                 let title: String = title.chars().take(MAX_TITLE).collect();
                 if seen.insert(url.clone()) {
-                    out.push(ParsedBookmark { title, url });
+                    out.push(ParsedBookmark { title, url, folder: String::new() });
                 }
             }
         }
@@ -190,15 +193,31 @@ fn escape_html(s: &str) -> String {
 /// Build a Netscape bookmark file body from bookmark rows. Only http(s) URLs are
 /// written — the format that every browser can re-import.
 pub fn build_bookmarks_html(bookmarks: &[Bookmark]) -> String {
-    let mut rows = String::new();
+    let mut loose = String::new();
+    let mut folders: Vec<(String, String)> = Vec::new();
     for b in bookmarks {
         if !is_http_url(&b.url) {
             continue;
         }
-        rows.push_str(&format!(
+        let line = format!(
             "    <DT><A HREF=\"{}\">{}</A>\n",
             escape_html(&b.url),
             escape_html(if b.title.is_empty() { &b.url } else { &b.title })
+        );
+        if b.folder.is_empty() {
+            loose.push_str(&line);
+        } else if let Some(group) = folders.iter_mut().find(|(name, _)| name == &b.folder) {
+            group.1.push_str(&line);
+        } else {
+            folders.push((b.folder.clone(), line));
+        }
+    }
+    let mut rows = loose;
+    for (folder, items) in folders {
+        rows.push_str(&format!(
+            "    <DT><H3>{}</H3>\n    <DL><p>\n{}    </DL><p>\n",
+            escape_html(&folder),
+            items
         ));
     }
     format!(
@@ -248,17 +267,19 @@ pub(crate) fn insert_bookmarks(
             .ok();
         if existing.is_some() {
             conn.execute(
-                "UPDATE bookmarks SET title = ?1 WHERE profile_id = ?2 AND url = ?3",
-                params![title, profile, target],
+                "UPDATE bookmarks SET title = ?1,
+                   folder = CASE WHEN ?4 = '' THEN folder ELSE ?4 END
+                 WHERE profile_id = ?2 AND url = ?3",
+                params![title, profile, target, crate::commands::data::clean_folder(&item.folder)],
             )?;
             summary.duplicates += 1;
             continue;
         }
         let id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at)
-             VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
-            params![id, profile, title, target, order, now_ms()],
+            "INSERT INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at, folder)
+             VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7)",
+            params![id, profile, title, target, order, now_ms(), crate::commands::data::clean_folder(&item.folder)],
         )?;
         order += 1;
         summary.imported += 1;
@@ -366,7 +387,7 @@ pub fn export_bookmarks_to_string(db: &DbState) -> Result<String, AppError> {
     let profile = crate::commands::profiles::resolve_active_profile(&conn)
         .ok_or_else(|| AppError::InvalidInput("no active profile".into()))?;
     let mut stmt = conn.prepare(
-        "SELECT id, title, url, is_favorite, sort_order, created_at FROM bookmarks
+        "SELECT id, title, url, is_favorite, sort_order, created_at, tags, notes, folder FROM bookmarks
          WHERE profile_id = ?1
          ORDER BY is_favorite DESC, sort_order ASC, created_at DESC",
     )?;
@@ -378,6 +399,9 @@ pub fn export_bookmarks_to_string(db: &DbState) -> Result<String, AppError> {
             is_favorite: row.get(3)?,
             sort_order: row.get(4)?,
             created_at: row.get(5)?,
+            tags: row.get(6)?,
+            notes: row.get(7)?,
+            folder: row.get(8)?,
         })
     })?;
     let mut bookmarks = Vec::new();
@@ -452,12 +476,37 @@ mod tests {
                 is_favorite: 0,
                 sort_order: i as i64,
                 created_at: 0,
+                tags: String::new(),
+                notes: String::new(),
+                folder: String::new(),
             })
             .collect();
         let html = build_bookmarks_html(&bookmarks);
         let parsed = parse_bookmarks_html(&html);
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].title, "T & <0>");
+    }
+
+    #[test]
+    fn folders_are_written_as_netscape_groups() {
+        let mut bookmark = Bookmark {
+            id: "b1".into(),
+            title: "Docs".into(),
+            url: "https://docs.example.com".into(),
+            is_favorite: 0,
+            sort_order: 0,
+            created_at: 0,
+            tags: String::new(),
+            notes: String::new(),
+            folder: "Work/Reading".into(),
+        };
+        let html = build_bookmarks_html(&[bookmark.clone()]);
+        assert!(html.contains("<H3>Work/Reading</H3>"));
+        assert!(html.contains("https://docs.example.com"));
+
+        bookmark.folder = String::new();
+        let flat = build_bookmarks_html(&[bookmark]);
+        assert!(!flat.contains("<H3>"));
     }
 
     #[test]
@@ -469,6 +518,9 @@ mod tests {
             is_favorite: 0,
             sort_order: 0,
             created_at: 0,
+            tags: String::new(),
+            notes: String::new(),
+            folder: String::new(),
         }];
         let html = build_bookmarks_html(&bookmarks);
         assert_eq!(parse_bookmarks_html(&html).len(), 0);

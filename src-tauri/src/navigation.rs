@@ -5,11 +5,15 @@
 use crate::error::AppError;
 
 pub const HOME_URL: &str = "govind://home";
+/// Fixed first tab in every workspace. It is shell-rendered and never loadable
+/// in a webview.
+pub const AI_URL: &str = "govind://ai";
 
 /// Internal pages rendered by the shell itself (never loaded into a webview).
 /// Mirrors the chrome:// URLs users expect: history, downloads, bookmarks, settings.
 pub const INTERNAL_ROUTES: &[&str] = &[
     "home",
+    "ai",
     "history",
     "downloads",
     "bookmarks",
@@ -134,6 +138,7 @@ mod tests {
     #[test]
     fn internal_pages_are_valid_navigation_targets() {
         assert_eq!(validate_navigation_url("govind://home").unwrap(), "govind://home");
+        assert_eq!(validate_navigation_url("govind://ai").unwrap(), "govind://ai");
         assert_eq!(validate_navigation_url("govind://history").unwrap(), "govind://history");
         assert_eq!(validate_navigation_url("govind://downloads").unwrap(), "govind://downloads");
         assert_eq!(validate_navigation_url("govind://settings").unwrap(), "govind://settings");

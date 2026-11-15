@@ -25,6 +25,7 @@ use tauri::{
 };
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent};
 
+use crate::commands::inspector::INSPECTOR_JS;
 use crate::db::DbState;
 use crate::error::AppError;
 
@@ -99,6 +100,8 @@ pub struct LayoutState {
   /// false → the shell shows a non-browser view (home, settings …): hide every webview.
   pub visible: bool,
   pub active: Option<String>,
+  /// Second tab shown side by side (split view) — `None` for a single pane.
+  pub secondary: Option<String>,
 }
 
 impl Default for LayoutState {
@@ -110,8 +113,47 @@ impl Default for LayoutState {
       height: 700.0,
       visible: false,
       active: None,
+      secondary: None,
     }
   }
+}
+
+/// Gap between the two panes of a split view, in logical pixels.
+const SPLIT_GAP: f64 = 6.0;
+
+/// Download naming/organizing settings for the active profile.
+fn download_rules(app: &AppHandle) -> (bool, String) {
+  app
+    .try_state::<DbState>()
+    .map(|db| {
+      let conn = db.conn();
+      (
+        crate::db::setting(&conn, "download_organize").as_deref() == Some("true"),
+        crate::db::setting(&conn, "download_name_pattern").unwrap_or_default(),
+      )
+    })
+    .unwrap_or((false, String::new()))
+}
+
+/// Rewrite the engine's chosen download path according to the user's rules.
+/// Returns the final filename for the shell's download record.
+fn apply_download_rules(app: &AppHandle, url: &str, destination: &mut std::path::PathBuf) -> Option<String> {
+  let (organize, pattern) = download_rules(app);
+  if !organize && pattern.trim().is_empty() {
+    return destination.file_name().map(|name| name.to_string_lossy().to_string());
+  }
+  let target = crate::commands::downloads::destination_for(
+    destination,
+    url,
+    organize,
+    &pattern,
+    &crate::commands::downloads::date_stamp(crate::db::now_ms()),
+  );
+  if let Some(parent) = target.parent() {
+    let _ = std::fs::create_dir_all(parent);
+  }
+  *destination = target;
+  destination.file_name().map(|name| name.to_string_lossy().to_string())
 }
 
 /// Real page favicons: after a page finishes loading, this tiny script briefly
@@ -939,6 +981,15 @@ impl TabWebviewManager {
     false
   }
 
+  /// Evaluate a script in one tab's webview. Returns false when the tab has no
+  /// live view (internal page, sleeping tab) or the engine rejected the script.
+  pub fn eval_in_tab(&self, tab_id: &str, script: &str) -> bool {
+    let Some(webview) = self.webviews().get(tab_id).cloned() else {
+      return false;
+    };
+    webview.eval(script).is_ok()
+  }
+
   pub fn network_blocker(&self) -> NetworkBlocker {
     self.network_blocker.clone()
   }
@@ -1009,9 +1060,19 @@ impl TabWebviewManager {
 
     for (tab_id, webview) in views {
       let active = layout.visible && layout.active.as_deref() == Some(tab_id.as_str());
-      if active {
-        let _ = webview.set_position(LogicalPosition::new(layout.offset_x, layout.offset_y));
-        let _ = webview.set_size(LogicalSize::new(layout.width.max(1.0), layout.height.max(1.0)));
+      let secondary = layout
+        .visible
+        .then(|| layout.secondary.as_deref() == Some(tab_id.as_str()))
+        .unwrap_or(false);
+      if active || secondary {
+        let pane_width = if layout.secondary.is_some() {
+          ((layout.width - SPLIT_GAP) / 2.0).max(1.0)
+        } else {
+          layout.width.max(1.0)
+        };
+        let x = if secondary { layout.offset_x + pane_width + SPLIT_GAP } else { layout.offset_x };
+        let _ = webview.set_position(LogicalPosition::new(x, layout.offset_y));
+        let _ = webview.set_size(LogicalSize::new(pane_width, layout.height.max(1.0)));
         let _ = webview.show();
       } else {
         let _ = webview.hide();
@@ -1139,7 +1200,8 @@ impl TabWebviewManager {
         "__INITIAL_MUTED__",
         if self.is_muted(tab_id) { "true" } else { "false" },
       )
-      .replace("__PASSWORD_GENERATOR__", PASSWORD_GENERATOR_JS);
+      .replace("__PASSWORD_GENERATOR__", PASSWORD_GENERATOR_JS)
+      + INSPECTOR_JS;
 
     #[cfg(windows)]
     let initial_url = Url::parse("about:blank").expect("valid blank page URL");
@@ -1244,28 +1306,33 @@ impl TabWebviewManager {
           let dnt = mgr.dnt_enabled();
           let css = mgr.cosmetic_css();
           let probe = webview.clone();
+          let inspector_app = load_handle.clone();
+          let inspector_tab = load_id.clone();
           std::thread::spawn(move || {
             let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
             let _ = probe.eval(&format!("window.__govindSetCosmetic && window.__govindSetCosmetic({css_json});"));
-            std::thread::sleep(Duration::from_millis(400));
-            let _ = probe.eval(FAVICON_PROBE_JS);
             let _ = probe.eval(&format!("window.__govindSetMuted && window.__govindSetMuted({muted});"));
             let _ = probe.eval(&format!("window.__govindForceDark && window.__govindForceDark({force_dark});"));
             let _ = probe.eval(&format!("window.__govindSetSpellcheck && window.__govindSetSpellcheck({spell});"));
             let _ = probe.eval(&format!("window.__govindSetDnt && window.__govindSetDnt({dnt});"));
+            // Keep an enabled inspector attached across navigations.
+            crate::commands::inspector::apply_page_state(&inspector_app, &probe, &inspector_tab);
+            std::thread::sleep(Duration::from_millis(400));
+            let _ = probe.eval(FAVICON_PROBE_JS);
           });
         }
       })
       .on_download(move |_webview, event| {
         match event {
           DownloadEvent::Requested { url, destination } => {
+            let filename = apply_download_rules(&download_handle, url.as_str(), destination);
             let _ = download_handle.emit(
               "download-started",
               json!({
                 "tabId": download_id,
                 "isPrivate": is_private,
                 "url": url.to_string(),
-                "filename": destination.file_name().map(|n| n.to_string_lossy().to_string()),
+                "filename": filename,
               }),
             );
             true // allow the download
@@ -1356,7 +1423,8 @@ impl TabWebviewManager {
         if self.is_muted(tab_id) { "true" } else { "false" },
       )
       .replace("__PASSWORD_GENERATOR__", PASSWORD_GENERATOR_JS)
-      + MOBILE_TOOLBAR_JS;
+      + MOBILE_TOOLBAR_JS
+      + INSPECTOR_JS;
 
     let mut builder = tauri::WebviewWindowBuilder::new(
       app,
@@ -1460,15 +1528,18 @@ impl TabWebviewManager {
         let dnt = mgr.dnt_enabled();
         let css = mgr.cosmetic_css();
         let probe = window.clone();
+        let inspector_app = load_handle.clone();
+        let inspector_tab = load_id.clone();
         std::thread::spawn(move || {
           let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
           let _ = probe.eval(&format!("window.__govindSetCosmetic && window.__govindSetCosmetic({css_json});"));
-          std::thread::sleep(Duration::from_millis(400));
-          let _ = probe.eval(FAVICON_PROBE_JS);
           let _ = probe.eval(&format!("window.__govindSetMuted && window.__govindSetMuted({muted});"));
           let _ = probe.eval(&format!("window.__govindForceDark && window.__govindForceDark({force_dark});"));
           let _ = probe.eval(&format!("window.__govindSetSpellcheck && window.__govindSetSpellcheck({spell});"));
           let _ = probe.eval(&format!("window.__govindSetDnt && window.__govindSetDnt({dnt});"));
+          crate::commands::inspector::apply_page_state(&inspector_app, &probe, &inspector_tab);
+          std::thread::sleep(Duration::from_millis(400));
+          let _ = probe.eval(FAVICON_PROBE_JS);
         });
       }
     })
@@ -1482,13 +1553,14 @@ impl TabWebviewManager {
     .on_download(move |_webview, event| {
       match event {
         DownloadEvent::Requested { url, destination } => {
+          let filename = apply_download_rules(&download_handle, url.as_str(), destination);
           let _ = download_handle.emit(
             "download-started",
             json!({
               "tabId": download_tab_id,
               "isPrivate": is_private,
               "url": url.to_string(),
-              "filename": destination.file_name().map(|n| n.to_string_lossy().to_string()),
+              "filename": filename,
             }),
           );
           true

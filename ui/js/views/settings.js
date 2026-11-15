@@ -11,11 +11,19 @@ import * as api from '../services/ipc.js';
 import { SEARCH_ENGINES } from '../lib/url.js';
 import { store } from '../state/store.js';
 import { decryptBrowserBackup, encryptBrowserBackup } from '../lib/encrypted-backup.js';
+import {
+  DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, parseShortcut, shortcutFromEvent,
+} from '../lib/shortcuts.js';
+import { DEFAULT_NVIDIA_MODEL, nvidiaModelOptions } from '../lib/nvidia.js';
 
 const CATEGORIES = [
   { id: 'general', label: 'General', hint: 'Startup, search engine, HTTPS' },
+  { id: 'ai', label: 'AI generation', hint: 'NVIDIA API key' },
   { id: 'data', label: 'Data transfer', hint: 'Encrypted browser backup' },
   { id: 'appearance', label: 'Appearance', hint: 'Theme and web pages' },
+  { id: 'downloads', label: 'Downloads', hint: 'Folders, file names, scanning' },
+  { id: 'newtab', label: 'New tab', hint: 'Widgets and website shortcuts' },
+  { id: 'keys', label: 'Keyboard', hint: 'Custom shortcuts' },
   { id: 'autofill', label: 'Autofill', hint: 'Saved names, addresses, cards' },
   { id: 'translation', label: 'Translation', hint: 'LibreTranslate endpoint' },
   { id: 'privacy', label: 'Privacy & data', hint: 'Clear browsing data, telemetry' },
@@ -142,6 +150,113 @@ async function renderCategory(category, host = $('#settings-cards')) {
             <div class="s-desc">Upgrade http:// navigations to https:// when possible. Pages that fail over HTTPS are left untouched (no silent downgrade).</div></div>
           <label class="switch"><input type="checkbox" id="setting-https-first" ${s.https_first !== 'false' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
         </div>
+        <div class="setting-row">
+          <div><div class="s-title">Sleep inactive tabs</div>
+            <div class="s-desc">Suspend tabs you have not used for this many minutes to free memory. A sleeping tab reloads when you switch to it. 0 keeps every tab loaded.</div></div>
+          <input id="setting-tab-sleep" type="number" min="0" max="240" step="5" value="${escapeHtml(s.tab_sleep_minutes ?? '0')}" aria-label="Minutes before a tab sleeps"/>
+        </div>
+      </section>`;
+    return;
+  }
+
+  if (category === 'downloads') {
+    host.innerHTML = `
+      <section class="settings-card">
+        <h4>Download rules</h4>
+        <p class="s-desc">Files still go to the engine's download folder; these rules only pick a subfolder and the file name. They apply before the transfer starts.</p>
+        <div class="setting-row">
+          <div><div class="s-title">Sort downloads into folders</div>
+            <div class="s-desc">Images, video, audio, archives, documents and installers go into a matching subfolder. Other file types stay where the engine saved them.</div></div>
+          <label class="switch"><input type="checkbox" id="setting-download-organize" ${s.download_organize === 'true' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Rename downloaded files</div>
+            <div class="s-desc">Placeholders: <code>{name}</code>, <code>{ext}</code>, <code>{host}</code> and <code>{date}</code> (YYYY-MM-DD). Leave empty to keep the site's file name. Existing files are never overwritten.</div></div>
+          <input id="setting-download-pattern" type="text" maxlength="120" spellcheck="false" placeholder="{name}" value="${escapeHtml(s.download_name_pattern ?? '')}" aria-label="Download file name pattern"/>
+        </div>
+      </section>
+      <section class="settings-card">
+        <h4>Safety</h4>
+        <div class="setting-row">
+          <div><div class="s-title">Scan finished downloads</div>
+            <div class="s-desc">Checks each new file with Microsoft Defender on Windows, on this device — files are never uploaded. Other systems report scanning as unavailable, and a threat verdict only warns you: nothing is deleted.</div></div>
+          <label class="switch"><input type="checkbox" id="setting-download-scan" ${s.download_scan === 'true' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+        </div>
+      </section>`;
+    return;
+  }
+
+  if (category === 'newtab') {
+    const widgets = new Set(parseSettingJson(s.dashboard_widgets, ['clock', 'shortcuts', 'time']));
+    const shortcuts = parseSettingJson(s.website_shortcuts, []);
+    const widgetRow = (id, title, description) => `
+      <div class="setting-row">
+        <div><div class="s-title">${title}</div><div class="s-desc">${description}</div></div>
+        <label class="switch"><input type="checkbox" data-widget="${id}" ${widgets.has(id) ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+      </div>`;
+    host.innerHTML = `
+      <section class="settings-card">
+        <h4>New-tab widgets</h4>
+        ${widgetRow('clock', 'Clock', 'Shows the local time above the search box.')}
+        ${widgetRow('time', 'Time today', 'Total time spent on websites today, counted locally.')}
+        ${widgetRow('shortcuts', 'Website shortcuts', 'Your pinned website buttons.')}
+      </section>
+      <section class="settings-card">
+        <h4>Website shortcuts</h4>
+        <p class="s-desc">Up to 12 quick buttons shown on the new-tab page.</p>
+        <div id="shortcut-list">${Array.isArray(shortcuts) && shortcuts.length
+          ? shortcuts.map((shortcut) => shortcutRow(shortcut)).join('')
+          : '<p class="fav-empty">No shortcuts yet.</p>'}</div>
+        <div class="setting-row">
+          <input id="shortcut-title" type="text" maxlength="40" placeholder="Title" aria-label="Shortcut title"/>
+          <input id="shortcut-url" type="text" maxlength="500" spellcheck="false" placeholder="https://example.com" aria-label="Shortcut URL"/>
+          <button class="btn-secondary" id="shortcut-add" type="button">Add</button>
+        </div>
+      </section>`;
+    return;
+  }
+
+  if (category === 'ai') {
+    const info = await api.generationInfo().catch(() => null);
+    const configured = s.nvidia_api_key_set === 'true';
+    const model = s.nvidia_model || info?.model || DEFAULT_NVIDIA_MODEL;
+    host.innerHTML = `
+      <section class="settings-card">
+        <h4>NVIDIA NIM</h4>
+        <p class="s-desc">WorkAny generates slides, documents, spreadsheets and websites through NVIDIA's OpenAI-compatible API. The key is checked with NVIDIA before it is saved, stays on this device, and is never included in browser backups.</p>
+        <div class="setting-row">
+          <div>
+            <div class="s-title">API key</div>
+            <div class="s-desc" id="nvidia-key-status" role="status">${configured ? 'A verified key is saved for this profile.' : 'No key saved yet. Create one on build.nvidia.com.'}</div>
+          </div>
+          <div class="engine-controls nvidia-key-controls">
+            <input id="setting-nvidia-key" type="password" maxlength="512" autocomplete="off" spellcheck="false" placeholder="nvapi-..." aria-label="NVIDIA API key"/>
+            <button class="btn-secondary" id="save-nvidia-key" type="button">Save &amp; verify</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Model</div><div class="s-desc">Pick the NVIDIA NIM model WorkAny should use. Keys can differ in model access; test on the AI Workspace tab if unsure.</div></div>
+          <select id="setting-nvidia-model" aria-label="NVIDIA model">${nvidiaModelOptions(info?.models, model)}</select>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Remove credentials</div><div class="s-desc">Deletes the saved key. The selected model stays.</div></div>
+          <button class="btn-secondary" id="clear-nvidia-key" type="button" ${configured ? '' : 'hidden'}>Remove key</button>
+        </div>
+      </section>`;
+    return;
+  }
+
+  if (category === 'keys') {
+    const custom = parseSettingJson(s.custom_shortcuts, {});
+    host.innerHTML = `
+      <section class="settings-card">
+        <h4>Custom shortcuts</h4>
+        <p class="s-desc">Click a field and press a combo (hold <code>Ctrl</code>, <code>Alt</code> or <code>Meta</code>). Backspace clears it and restores the built-in key, shown as a placeholder. A custom combo replaces the built-in one for that action.</p>
+        ${SHORTCUT_ACTIONS.map((action) => `
+          <div class="setting-row">
+            <div class="s-title">${escapeHtml(action.label)}</div>
+            <input data-shortcut-action="${action.id}" type="text" maxlength="40" spellcheck="false" readonly placeholder="${DEFAULT_SHORTCUTS[action.id] ? `Default: ${DEFAULT_SHORTCUTS[action.id]}` : 'Press a combo'}" value="${escapeHtml(custom?.[action.id] ?? '')}" aria-label="Shortcut for ${escapeHtml(action.label)}"/>
+          </div>`).join('')}
       </section>`;
     return;
   }
@@ -386,6 +501,57 @@ async function renderPermissions(host) {
        </div>`;
 }
 
+// Reject two custom combos for one action, and a combo that is already the
+// built-in accelerator of a different action (which would never fire).
+function shortcutConflict(map) {
+  const entries = Object.entries(map);
+  for (let i = 0; i < entries.length; i += 1) {
+    for (let j = i + 1; j < entries.length; j += 1) {
+      if (entries[i][1].toLowerCase() === entries[j][1].toLowerCase()) {
+        return `${entries[i][1]} is assigned to two actions.`;
+      }
+    }
+  }
+  for (const [action, combo] of entries) {
+    for (const [other, otherCombo] of Object.entries(DEFAULT_SHORTCUTS)) {
+      if (other !== action && !map[other] && combo.toLowerCase() === otherCombo.toLowerCase()) {
+        const label = SHORTCUT_ACTIONS.find((item) => item.id === other)?.label ?? other;
+        return `${combo} is already the built-in shortcut for ${label}.`;
+      }
+    }
+  }
+  return '';
+}
+
+function parseSettingJson(raw, fallback) {
+  try {
+    const parsed = JSON.parse(raw ?? '');
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function shortcutRow(shortcut) {
+  return `<div class="setting-row" data-shortcut data-title="${escapeHtml(shortcut.title)}" data-url="${escapeHtml(shortcut.url)}">
+    <div><div class="s-title">${escapeHtml(shortcut.title)}</div><div class="s-desc">${escapeHtml(shortcut.url)}</div></div>
+    <button class="row-action" data-remove-shortcut="${escapeHtml(shortcut.url)}" title="Remove shortcut" aria-label="Remove ${escapeHtml(shortcut.title)}">×</button>
+  </div>`;
+}
+
+function readShortcutRows(container) {
+  return [...container.querySelectorAll('[data-shortcut]')].map((row) => ({
+    title: row.getAttribute('data-title') ?? '',
+    url: row.getAttribute('data-url') ?? '',
+  }));
+}
+
+async function saveShortcuts(container, shortcuts) {
+  const value = JSON.stringify(shortcuts);
+  store.settings.website_shortcuts = value;
+  await api.setSetting('website_shortcuts', value);
+}
+
 function wireSettingsPage(container) {
   const on = (selector, event, handler) =>
     container.querySelector(selector)?.addEventListener(event, handler);
@@ -466,6 +632,142 @@ function wireSettingsPage(container) {
     toast(e.target.checked ? 'HTTPS-first enabled.' : 'HTTPS-first disabled.');
   });
 
+  on('#setting-tab-sleep', 'change', async (e) => {
+    const minutes = Math.max(0, Math.min(240, Number(e.target.value) || 0));
+    e.target.value = String(minutes);
+    store.settings.tab_sleep_minutes = String(minutes);
+    await api.setSetting('tab_sleep_minutes', String(minutes));
+    toast(minutes ? `Inactive tabs sleep after ${minutes} minutes.` : 'Tab sleeping turned off.');
+  });
+
+  on('#setting-download-organize', 'change', async (e) => {
+    const value = e.target.checked ? 'true' : 'false';
+    store.settings.download_organize = value;
+    await api.setSetting('download_organize', value);
+    toast(e.target.checked ? 'Downloads are sorted into folders.' : 'Download sorting off.');
+  });
+
+  on('#setting-download-pattern', 'change', async (e) => {
+    const value = e.target.value.trim();
+    if (/[\\/]/.test(value)) {
+      toast('Rename patterns cannot contain / or \\.');
+      return;
+    }
+    store.settings.download_name_pattern = value;
+    await api.setSetting('download_name_pattern', value);
+    toast(value ? 'Download rename pattern saved.' : 'Download renaming off.');
+  });
+
+  on('#setting-download-scan', 'change', async (e) => {
+    const value = e.target.checked ? 'true' : 'false';
+    store.settings.download_scan = value;
+    await api.setSetting('download_scan', value);
+    toast(e.target.checked ? 'Finished downloads will be scanned.' : 'Download scanning off.');
+  });
+
+  container.querySelectorAll('[data-widget]').forEach((input) => {
+    input.addEventListener('change', async () => {
+      const enabled = [...container.querySelectorAll('[data-widget]')]
+        .filter((item) => item.checked)
+        .map((item) => item.getAttribute('data-widget'));
+      const value = JSON.stringify(enabled);
+      store.settings.dashboard_widgets = value;
+      await api.setSetting('dashboard_widgets', value);
+      toast('New-tab widgets updated.');
+    });
+  });
+
+  on('#shortcut-add', 'click', async () => {
+    const titleInput = container.querySelector('#shortcut-title');
+    const urlInput = container.querySelector('#shortcut-url');
+    const title = titleInput?.value.trim() ?? '';
+    const url = urlInput?.value.trim() ?? '';
+    if (!title || !/^https?:\/\//i.test(url)) {
+      toast('A shortcut needs a title and an http(s) URL.');
+      return;
+    }
+    const shortcuts = readShortcutRows(container);
+    if (shortcuts.length >= 12) {
+      toast('Up to 12 shortcuts.');
+      return;
+    }
+    if (shortcuts.some((shortcut) => shortcut.url === url)) {
+      toast('That shortcut already exists.');
+      return;
+    }
+    shortcuts.push({ title, url });
+    await saveShortcuts(container, shortcuts);
+    const list = container.querySelector('#shortcut-list');
+    list?.querySelector('.fav-empty')?.remove();
+    list?.insertAdjacentHTML('beforeend', shortcutRow({ title, url }));
+    list?.lastElementChild?.querySelector('[data-remove-shortcut]')?.addEventListener('click', handleRemoveShortcut);
+    if (titleInput) titleInput.value = '';
+    if (urlInput) urlInput.value = '';
+    toast('Shortcut added.');
+  });
+
+  async function handleRemoveShortcut(event) {
+    const row = event.currentTarget.closest('[data-shortcut]');
+    row?.remove();
+    await saveShortcuts(container, readShortcutRows(container));
+    const list = container.querySelector('#shortcut-list');
+    if (list && !list.querySelector('[data-shortcut]')) {
+      list.innerHTML = '<p class="fav-empty">No shortcuts yet.</p>';
+    }
+    toast('Shortcut removed.');
+  }
+
+  container.querySelectorAll('[data-remove-shortcut]').forEach((button) => {
+    button.addEventListener('click', handleRemoveShortcut);
+  });
+
+  container.querySelectorAll('[data-shortcut-action]').forEach((input) => {
+    // Record the combo instead of asking the user to type it. Tab still moves
+    // focus, and Backspace/Delete clears the override.
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Tab') return;
+      event.preventDefault();
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        input.value = '';
+        input.dispatchEvent(new Event('change'));
+        return;
+      }
+      if (event.key === 'Escape') return;
+      const combo = shortcutFromEvent(event);
+      if (!combo) {
+        toast('Hold Ctrl, Alt or Meta together with another key.');
+        return;
+      }
+      input.value = combo;
+      input.dispatchEvent(new Event('change'));
+    });
+    input.addEventListener('change', async () => {
+      if (input.value.trim() && !parseShortcut(input.value)) {
+        toast('Use a combo like Ctrl+Alt+K.');
+        input.value = '';
+      }
+      const map = {};
+      container.querySelectorAll('[data-shortcut-action]').forEach((field) => {
+        const combo = field.value.trim();
+        if (combo) map[field.getAttribute('data-shortcut-action')] = combo;
+      });
+      const conflict = shortcutConflict(map);
+      if (conflict) {
+        toast(conflict);
+        input.value = '';
+        return;
+      }
+      const value = JSON.stringify(map);
+      try {
+        await api.setSetting('custom_shortcuts', value);
+        store.settings.custom_shortcuts = value;
+        toast('Keyboard shortcuts saved.');
+      } catch {
+        toast('That shortcut could not be saved.');
+      }
+    });
+  });
+
   on('#setting-theme', 'change', async (e) => {
     store.settings.theme = e.target.value;
     applyTheme(e.target.value);
@@ -534,6 +836,62 @@ function wireSettingsPage(container) {
     store.settings.cosmetic_filters = value;
     if (api.isNative() && store.settings.content_blocking === 'true') await api.setContentBlocking(value);
     toast('Filter selectors saved.');
+  });
+
+  const nvidiaInput = container.querySelector('#setting-nvidia-key');
+  const nvidiaModel = container.querySelector('#setting-nvidia-model');
+  const nvidiaButton = container.querySelector('#save-nvidia-key');
+  const nvidiaStatus = container.querySelector('#nvidia-key-status');
+  const nvidiaClear = container.querySelector('#clear-nvidia-key');
+
+  nvidiaInput?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    nvidiaButton?.click();
+  });
+
+  nvidiaButton?.addEventListener('click', async () => {
+    const key = nvidiaInput?.value.trim() ?? '';
+    const configured = store.settings.nvidia_api_key_set === 'true';
+    if (!key && !configured) {
+      toast('Paste an NVIDIA API key first.');
+      nvidiaInput?.focus();
+      return;
+    }
+    if (key && !/^nvapi-[A-Za-z0-9_-]{10,}$/.test(key)) {
+      toast('Paste a complete NVIDIA API key starting with nvapi-.');
+      nvidiaInput?.focus();
+      return;
+    }
+    const model = nvidiaModel?.value || DEFAULT_NVIDIA_MODEL;
+    const previous = nvidiaButton.textContent;
+    nvidiaButton.disabled = true;
+    nvidiaButton.textContent = 'Verifying…';
+    try {
+      const result = await api.saveNvidiaKey(key, model);
+      if (nvidiaInput) nvidiaInput.value = '';
+      store.settings.nvidia_api_key_set = 'true';
+      if (nvidiaStatus) nvidiaStatus.textContent = result?.detail ?? 'A verified key is saved for this profile.';
+      if (nvidiaClear) nvidiaClear.hidden = false;
+      toast('NVIDIA key verified and saved.');
+    } catch (error) {
+      toast(`NVIDIA key not saved: ${error?.message ?? error}`);
+    } finally {
+      nvidiaButton.disabled = false;
+      nvidiaButton.textContent = previous;
+    }
+  });
+
+  nvidiaClear?.addEventListener('click', async () => {
+    try {
+      await api.setSetting('nvidia_api_key', '');
+      store.settings.nvidia_api_key_set = 'false';
+      if (nvidiaStatus) nvidiaStatus.textContent = 'No key saved yet. Create one on build.nvidia.com.';
+      if (nvidiaClear) nvidiaClear.hidden = true;
+      toast('NVIDIA key removed.');
+    } catch (error) {
+      toast(`Could not remove the NVIDIA key: ${error?.message ?? error}`);
+    }
   });
 
   on('#setting-translation-endpoint', 'change', async (e) => {

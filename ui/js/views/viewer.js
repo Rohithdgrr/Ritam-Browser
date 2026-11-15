@@ -20,6 +20,7 @@ import {
   tableHtml,
   markdownToHtml,
   renderDocx,
+  renderPptx,
   readXlsx,
 } from '../lib/file-preview.js';
 
@@ -61,6 +62,7 @@ export function renderViewerPage() {
         </div>
         <div class="viewer-actions">
           ${viewer.name ? '<button class="btn-secondary" type="button" data-viewer-close>Close</button>' : ''}
+          <button class="btn-secondary" type="button" data-viewer-generate>Generate…</button>
           <button class="btn-secondary" type="button" data-viewer-open>Open file…</button>
         </div>
       </header>
@@ -69,6 +71,9 @@ export function renderViewerPage() {
 
   host.querySelector('[data-viewer-open]')?.addEventListener('click', openViewerPicker);
   host.querySelector('[data-viewer-close]')?.addEventListener('click', closeViewerFile);
+  host.querySelector('[data-viewer-generate]')?.addEventListener('click', () => {
+    document.dispatchEvent(new CustomEvent('govind:generate'));
+  });
   // Links in Markdown open as browser tabs, never inside the shell.
   $('#viewer-body')?.addEventListener('click', (event) => {
     const link = event.target.closest('a[href]');
@@ -83,7 +88,7 @@ function emptyViewerHtml() {
   return `
     <div class="viewer-empty">
       <h2>Preview a file</h2>
-      <p>Images, video, PDF, Word (.docx), Excel (.xlsx), CSV, JSON, Markdown and plain text.</p>
+      <p>Images, video, PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV, JSON, Markdown and plain text.</p>
       <button class="btn-primary" type="button" data-viewer-open>Open file…</button>
     </div>`;
 }
@@ -140,6 +145,13 @@ async function renderViewerBody() {
       case 'docx': {
         body.innerHTML = '<p class="viewer-hint">Reading document…</p>';
         const html = await renderDocx(viewer.bytes);
+        if (token !== viewer.mountId) return;
+        body.innerHTML = html;
+        return;
+      }
+      case 'pptx': {
+        body.innerHTML = '<p class="viewer-hint">Reading presentation…</p>';
+        const html = await renderPptx(viewer.bytes);
         if (token !== viewer.mountId) return;
         body.innerHTML = html;
         return;
@@ -238,7 +250,7 @@ export async function openViewerPicker() {
   viewerInput().click();
 }
 
-async function openViewerPath(path) {
+export async function openViewerPath(path) {
   const name = path.split(/[\\/]/).pop() || path;
   if (!viewerKindFor(name)) {
     toast('Ritam cannot preview this file type yet.');

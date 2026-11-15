@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde_json::Value;
 use tauri::webview::PlatformWebview;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use webview2_com::{
   take_pwstr,
   AddScriptToExecuteOnDocumentCreatedCompletedHandler,
@@ -92,6 +92,14 @@ unsafe fn install_message_channel(
     let Ok(message) = serde_json::from_str::<Value>(&take_pwstr(raw)) else {
       return Ok(());
     };
+    // The inspector's page script reports requests, console output, errors and
+    // DOM snapshots over the same channel. Values only — never a command.
+    if message.get("type").and_then(Value::as_str) == Some("govind-capture") {
+      if let Some(state) = app.try_state::<crate::commands::inspector::InspectorState>() {
+        crate::commands::inspector::ingest(&state, &tab_id, &message);
+      }
+      return Ok(());
+    }
     if message.get("type").and_then(Value::as_str) != Some("govind-find") {
       return Ok(());
     }

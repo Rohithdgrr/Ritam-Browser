@@ -10,7 +10,7 @@
 //! each profile gets its own webview data directory. Deleting a profile drops
 //! both.
 
-use crate::db::{active_profile_id, now_ms, set_shell_state, DbState};
+use crate::db::{active_profile_id, ensure_ai_tab, now_ms, set_shell_state, DbState};
 use crate::error::AppError;
 use crate::models::Profile;
 use rusqlite::{params, Connection};
@@ -154,11 +154,13 @@ pub fn ensure_default_profile(conn: &Connection) -> Result<(), AppError> {
 
 /// A brand-new profile starts with one workspace so tabs have a home.
 fn ensure_workspace(conn: &Connection, profile_id: &str) -> Result<String, AppError> {
-    if let Ok(id) = conn.query_row(
+    let existing: Result<String, _> = conn.query_row(
         "SELECT id FROM workspaces WHERE profile_id = ?1 ORDER BY sort_order ASC LIMIT 1",
         params![profile_id],
         |r| r.get(0),
-    ) {
+    );
+    if let Ok(id) = existing {
+        ensure_ai_tab(conn, &id)?;
         return Ok(id);
     }
     let id = uuid::Uuid::new_v4().to_string();
@@ -167,6 +169,7 @@ fn ensure_workspace(conn: &Connection, profile_id: &str) -> Result<String, AppEr
          VALUES (?1, 'Personal', ?2, 0, ?3, ?4)",
         params![id, PROFILE_COLORS[0], now_ms(), profile_id],
     )?;
+    ensure_ai_tab(conn, &id)?;
     Ok(id)
 }
 
@@ -360,19 +363,28 @@ pub fn delete_profile(
 }
 
 #[tauri::command]
-pub fn set_active_profile(db: State<'_, DbState>, profile_id: String) -> Result<serde_json::Value, AppError> {
-    let conn = db.conn();
-    let exists: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM profiles WHERE id = ?1)",
-        params![profile_id],
-        |r| r.get(0),
-    )?;
-    if !exists {
-        return Err(AppError::NotFound("profile not found".into()));
-    }
-    set_shell_state(&conn, "active_profile_id", &profile_id)?;
-    let workspace = ensure_workspace(&conn, &profile_id)?;
-    set_shell_state(&conn, "active_workspace_id", &workspace)?;
+pub fn set_active_profile(
+    app: tauri::AppHandle,
+    db: State<'_, DbState>,
+    profile_id: String,
+) -> Result<serde_json::Value, AppError> {
+    let workspace = {
+        let conn = db.conn();
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM profiles WHERE id = ?1)",
+            params![profile_id],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Err(AppError::NotFound("profile not found".into()));
+        }
+        set_shell_state(&conn, "active_profile_id", &profile_id)?;
+        let workspace = ensure_workspace(&conn, &profile_id)?;
+        set_shell_state(&conn, "active_workspace_id", &workspace)?;
+        workspace
+    };
+    // Custom key combos are per profile: rebuild the native table for this one.
+    crate::register_shortcuts(&app);
     Ok(serde_json::json!({ "active_profile_id": profile_id, "active_workspace_id": workspace }))
 }
 

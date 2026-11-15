@@ -47,7 +47,7 @@ The Ritam Browser backend is a Rust library built on Tauri 2. It provides a secu
 
 | File | Responsibility |
 |------|----------------|
-| `src-tauri/src/commands/*.rs` | Typed command handlers grouped by domain: tabs, workspaces, data, settings, backups, bookmarks import/export, native menus |
+| `src-tauri/src/commands/*.rs` | Typed command handlers grouped by domain: tabs, workspaces, data, settings, backups, bookmarks import/export, downloads, scanning, statistics, developer inspector, native menus |
 
 ### 2.3 Webview Management
 
@@ -61,7 +61,11 @@ The Ritam Browser backend is a Rust library built on Tauri 2. It provides a secu
 |------|----------------|
 | `src-tauri/src/commands/profiles.rs` | Local profiles (name, email label, colour, avatar), default-profile bootstrap and reordering, `profile_dir()` (0700 on Unix), delete that removes every scoped row plus the engine folder in one transaction |
 | `src-tauri/src/commands/autofill.rs` | Per-profile identities and addresses in `{profile_dir}/autofill.json` (atomic write, 0600 on Unix, not encrypted); `request_autofill` pushes them into one tab tagged with the origin Rust reads from that webview |
-| `src-tauri/src/commands/import.rs` | Detects installed Chromium-family, Firefox and (macOS) Safari profiles; imports bookmarks and history after copying `Bookmarks` / `History` / `places.sqlite` to a temp dir and opening it `SQLITE_OPEN_READ_ONLY`; passwords are reported as skipped |
+| `src-tauri/src/commands/import.rs` | Detects installed Chromium-family, Firefox and (macOS) Safari profiles; imports bookmarks (folder paths preserved for Chromium/Safari) and history after copying `Bookmarks` / `History` / `places.sqlite` to a temp dir and opening it `SQLITE_OPEN_READ_ONLY`; passwords are reported as skipped |
+| `src-tauri/src/commands/downloads.rs` | Download destination rules: category folders by extension, `{name}`/`{ext}`/`{host}`/`{date}` rename patterns, collision-safe paths, applied before the engine starts a transfer |
+| `src-tauri/src/commands/scan.rs` | On-demand file scanning through Microsoft Defender's `MpCmdRun.exe` with remediation disabled; verdicts are stored on the download row and never delete the file |
+| `src-tauri/src/commands/stats.rs` | Per-profile, per-site, per-day time ledger fed by a 30-second heartbeat; summary command for the statistics page |
+| `src-tauri/src/commands/inspector.rs` | Page-level network/console/error/DOM capture, per-tab mock rules, request replay and DOM snapshots; every buffer is in-memory and bounded |
 
 ### 2.5 Ad Blocking
 
@@ -83,6 +87,8 @@ The Ritam Browser backend is a Rust library built on Tauri 2. It provides a secu
 | File | Responsibility |
 |------|----------------|
 | `ui/js/services/ipc.js` | Frontend command wrapper with localStorage-backed fallback for UI preview |
+| `ui/js/views/inspector.js` | Developer workbench UI (`govind://inspector`); reads the session report and sends replay/mock/snapshot actions |
+| `ui/js/lib/inspector.js` | Pure formatting helpers: cURL/Fetch export, JSON pretty-printing, request filtering and status tones |
 
 ---
 
@@ -105,7 +111,9 @@ Per-profile files live beside the database:
 The database is upgraded behind `PRAGMA user_version`: version 2 adds `profile_id` to bookmarks,
 history, reading list, site permissions, settings, downloads and notes, writes the pre-migration
 copy to `govind.db.bak-0002`, and moves `active_profile_id` / `active_workspace_id` into
-`shell_state` (the only keys that stay global).
+`shell_state` (the only keys that stay global). Version 3 is additive: bookmark `tags` and
+`notes`, download `scan_status`, and the `site_time` ledger. Version 4 is additive again and adds
+the bookmark `folder` label; no copy is needed for either.
 
 ### 3.2 Privacy Principles
 
@@ -113,6 +121,7 @@ copy to `govind.db.bak-0002`, and moves `active_profile_id` / `active_workspace_
 - **No Accounts:** No sign-in, no cloud sync, no account-related network calls
 - **Local Storage:** All data persisted in local SQLite database
 - **Translation:** Page text sent to configured endpoint only when user requests translation
+- **Developer workbench:** Network/console/error/DOM captures are memory-only for the current session; nothing is written to the database or sent anywhere
 
 ### 3.3 Private Tabs
 
@@ -147,6 +156,9 @@ The following state survives restarts via the settings table:
 |---------|---------|-------|
 | `recently_closed` | Last 20 closed tabs | Private tabs never recorded |
 | `muted_sites` | User-muted hostnames | Capped at 200 entries |
+| `custom_shortcuts` | Action → key combo overrides | Validated against the known action list |
+| `website_shortcuts` | New-tab shortcut buttons | At most 12 http(s) pairs |
+| `dashboard_widgets` | Enabled new-tab widgets | `clock`, `time`, `shortcuts` |
 
 ---
 
@@ -235,12 +247,13 @@ The browser uses the system webview, not an embedded Chromium distribution.
 | Download interception | ✅ | ✅ |
 | Permission handling | ✅ | ✅ |
 | Page titles | ✅ | ✅ |
+| Page-level inspector capture | ✅ (web-message channel) | ❌ |
 
 ### 7.2 Unavailable Features
 
 | Feature | Reason |
 |---------|--------|
-| Chromium DevTools Protocol | Not exposed by WebView2/WebKitGTK |
+| Chromium DevTools Protocol | Not exposed by WebView2/WebKitGTK; the inspector is page-level, not browser-level |
 | Extension Support | Requires Chromium engine |
 | Per-Tab CPU/Memory Reporting | Not available |
 | Response Body Rewrite | Hook cannot modify responses |
@@ -295,9 +308,25 @@ The blocker ships with these pre-compiled lists:
 
 ---
 
-## 9. Frontend Preview Mode
+## 9. Developer Workbench
 
-### 9.1 Local Development
+The inspector lives at `govind://inspector`. It is a developer tool, not a network proxy.
+
+| Aspect | Implementation |
+|--------|----------------|
+| Capture | `INSPECTOR_JS` is installed at document start in every tab. It wraps `fetch` and `XMLHttpRequest`, observes resource timings, forwards console calls and JS errors, and serialises the DOM on request. It is inert until the user starts capture for that tab. |
+| Transport | WebView2's web-message channel (`govind-capture`). The shell receives values only; a page can never invoke an app command. Linux and mobile expose no channel, so the page reports capture as unsupported. |
+| Storage | In-memory per tab: at most 500 requests, 300 console messages, 100 errors, 64 KB per body and a 200 KB DOM snapshot. Starting capture clears the previous report. |
+| Mocking | Per-tab rules (`url_contains`, method, status, content type, body) applied page-side before a fetch/XHR leaves the page; active only while capture is on. |
+| Replay | `replay_request` performs an explicit native HTTP request with a 25-second timeout, a 200 KB response cap, redirect limiting and transport-header filtering. It does not use the page's cookies or origin. |
+| Scope | Only requests visible to page JavaScript are captured; forbidden request headers (for example `Cookie`) and browser-level loads are not. Static resources appear with timing and size but no body. |
+| Privacy | Nothing is persisted, uploaded or shared between tabs. Closing the tab or pressing Clear discards the report. |
+
+---
+
+## 10. Frontend Preview Mode
+
+### 10.1 Local Development
 
 When running outside Tauri (e.g., `npm run dev`), the frontend uses a localStorage fallback:
 
@@ -310,9 +339,26 @@ When running outside Tauri (e.g., `npm run dev`), the frontend uses a localStora
 | Popup menus | ✅ | ❌ |
 | Platform behavior | ✅ | ❌ |
 
-### 9.2 Command Compatibility
+### 10.2 Command Compatibility
 
 Most shell commands work identically in both modes. Native-specific features (webview management, downloads, platform dialogs) gracefully degrade in preview mode.
+
+## 11. Generation (Optional WorkAny Sidecar)
+
+`commands/generation.rs` is a supervisor, not an embedded agent. The shell invokes
+`generate_artifact(artifact_type, prompt, options)`; Rust validates the type and
+prompt, creates `<app-data>/generations/<job>/staging`, and either connects to an
+already-running loopback service (`RITAM_WORKANY_URL` +
+`RITAM_WORKANY_TOKEN`) or spawns a hardened binary (`RITAM_WORKANY_API` or a
+resource). It streams progress over `generation-progress`, supports
+`cancel_generation(job_id)`, then discovers the newest allowlisted artifact inside
+staging, enforces the 64 MB cap and writes the final file through `atomic::write_atomic`.
+
+No WorkAny binary is bundled today because upstream does not yet bind to
+loopback, require a bearer token, remove wildcard CORS, or contain `/files/*`.
+Until those gates are met, `generation_info` reports `supported: false` and the
+UI disables Generate. Provider credentials stay inside WorkAny: Rust never reads
+or forwards API keys to the renderer.
 
 ---
 
@@ -324,6 +370,7 @@ Most shell commands work identically in both modes. Native-specific features (we
 | [Product Requirements](docs/PRD_v2.md) | Product roadmap |
 | [Engine Strategy ADR](docs/ADR-006-engine-strategy.md) | Engine architecture decision |
 | [Embedded WebViews ADR](docs/ADR-007-embedded-webviews.md) | WebView integration design |
+| [WorkAny Generation ADR](docs/ADR-008-workany-generation.md) | Sidecar contract and security gates |
 | [Engine Spike](docs/ENGINE_SPIKE.md) | Feasibility analysis |
 
 ---

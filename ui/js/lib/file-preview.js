@@ -16,6 +16,7 @@ const VIEWER_KINDS = {
   pdf: ['pdf'],
   docx: ['docx'],
   xlsx: ['xlsx'],
+  pptx: ['pptx'],
   csv: ['csv'],
   json: ['json'],
   markdown: ['md', 'markdown'],
@@ -34,6 +35,7 @@ const KIND_LABELS = {
   pdf: 'PDF',
   docx: 'Word document',
   xlsx: 'Excel workbook',
+  pptx: 'Presentation',
   csv: 'CSV',
   json: 'JSON',
   markdown: 'Markdown',
@@ -56,6 +58,7 @@ const MIME_TYPES = {
   m4v: 'video/x-m4v',
   ogv: 'video/ogg',
   pdf: 'application/pdf',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 };
 
 function extensionOf(name) {
@@ -432,6 +435,54 @@ export async function renderDocx(bytes) {
   const html = docxBlocksHtml(body);
   if (!html) throw new Error('This document appears to be empty.');
   return `<article class="viewer-doc">${html}</article>`;
+}
+
+// ── PPTX ─────────────────────────────────────────────────────────────
+
+function slideNumber(path) {
+  return Number(/slide(\d+)\.xml$/i.exec(path)?.[1] ?? 0);
+}
+
+/** Text runs from one slide's XML, in document order. */
+export function slideTexts(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) return [];
+  return [...doc.getElementsByTagName('a:t')]
+    .map((node) => (node.textContent ?? '').trim())
+    .filter(Boolean)
+    .map((text) => text.slice(0, 2_000));
+}
+
+/** PPTX → a slide-by-slide text outline. Images and animations are not rendered. */
+export async function renderPptx(bytes) {
+  const entries = await unzip(bytes);
+  const slides = [...entries.keys()]
+    .filter((path) => /^ppt\/slides\/slide\d+\.xml$/i.test(path))
+    .sort((a, b) => slideNumber(a) - slideNumber(b))
+    .slice(0, 200);
+  if (!slides.length) throw new Error('This file is not a PowerPoint presentation.');
+
+  const html = slides.map((path, index) => {
+    let texts = [];
+    try {
+      texts = slideTexts(decodeXml(entries.get(path)));
+    } catch {
+      texts = [];
+    }
+    const title = texts[0] ?? '';
+    const body = texts.slice(1);
+    return `<section class="viewer-slide">
+      <h3>Slide ${index + 1}${title ? ` · ${escapeHtml(title)}` : ''}</h3>
+      ${body.length
+        ? `<ul>${body.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`
+        : '<p class="viewer-muted">No text on this slide.</p>'}
+    </section>`;
+  }).join('');
+
+  return `<article class="viewer-doc viewer-slides">
+    <p class="viewer-muted">Text outline only — open the file in PowerPoint for slide design.</p>
+    ${html}
+  </article>`;
 }
 
 // ── XLSX ─────────────────────────────────────────────────────────────

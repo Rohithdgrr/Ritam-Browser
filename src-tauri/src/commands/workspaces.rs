@@ -1,4 +1,4 @@
-use crate::db::{now_ms, DbState};
+use crate::db::{ensure_ai_tab, now_ms, DbState};
 use crate::commands::profiles::resolve_active_profile;
 use crate::error::AppError;
 use crate::models::{DeleteWorkspaceResult, Workspace};
@@ -53,6 +53,7 @@ pub fn create_workspace(db: State<'_, DbState>, name: String, color: Option<Stri
         "INSERT INTO workspaces (id, name, color, sort_order, created_at, profile_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![id, name, color, sort_order, now, profile_id],
     )?;
+    ensure_ai_tab(&conn, &id)?;
     Ok(Workspace { id, name, color, sort_order, created_at: now })
 }
 

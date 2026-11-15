@@ -88,6 +88,8 @@ export const goBack = (tabId) => invoke('go_back', { tabId });
 export const goForward = (tabId) => invoke('go_forward', { tabId });
 export const reloadTab = (tabId) => invoke('reload_tab', { tabId });
 export const syncTabWindows = (args = {}) => invoke('sync_tab_windows', args);
+export const ensureTabView = (tabId) => invoke('ensure_tab_view', { tabId });
+export const sleepTab = (tabId) => invoke('sleep_tab', { tabId });
 export const showMoreMenu = (x, y) => invoke('show_more_menu', { x, y });
 export const printTab = (tabId) => invoke('print_tab', { tabId });
 export const zoomTab = (tabId, factor) => invoke('zoom_tab', { tabId, factor });
@@ -130,8 +132,8 @@ export const setActiveWorkspace = (workspaceId) => invoke('set_active_workspace'
 
 // ── Bookmarks ─────────────────────────────────────────────────────────
 export const listBookmarks = () => invoke('list_bookmarks');
-export const saveBookmark = (title, url, isFavorite = 0) =>
-  invoke('save_bookmark', { title, url, isFavorite });
+export const saveBookmark = (title, url, isFavorite = 0, folder = '') =>
+  invoke('save_bookmark', { title, url, isFavorite, folder });
 export const deleteBookmark = (bookmarkId) => invoke('delete_bookmark', { bookmarkId });
 export const toggleFavorite = (bookmarkId) => invoke('toggle_favorite', { bookmarkId });
 
@@ -165,6 +167,27 @@ export const deleteNote = (noteId) => invoke('delete_note', { noteId });
 export const listDownloads = () => invoke('list_downloads');
 export const recordDownload = ({ url, filename, destination, totalBytes, mimeType } = {}) =>
   invoke('record_download', { url, filename, destination, totalBytes, mimeType });
+export const scanDownload = (path) => invoke('scan_download', { path });
+export const recordSiteTime = (host, seconds, day) =>
+  invoke('record_site_time', { host, seconds, day });
+export const siteTimeSummary = (days = 7, fromDay, fromMs) =>
+  invoke('site_time_summary', { days, fromDay, fromMs });
+export const updateBookmarkDetails = (bookmarkId, { tags, notes, folder } = {}) =>
+  invoke('update_bookmark_details', { bookmarkId, tags, notes, folder });
+export const searchHistoryAdvanced = ({ query = '', limit = 200, domain = '', from = 0, to = 0 } = {}) =>
+  invoke('search_history', { query, limit, domain, from, to });
+
+// ── Developer workbench (govind://inspector) ──────────────────────────
+export const inspectorRead = (tabId) => invoke('inspector_read', { tabId });
+export const inspectorRequest = (tabId, requestId) =>
+  invoke('inspector_request', { tabId, requestId });
+export const setNetworkCapture = (tabId, enabled) =>
+  invoke('set_network_capture', { tabId, enabled });
+export const clearCapture = (tabId) => invoke('clear_capture', { tabId });
+export const setMockRules = (tabId, rules) => invoke('set_mock_rules', { tabId, rules });
+export const requestDomSnapshot = (tabId) => invoke('request_dom_snapshot', { tabId });
+export const replayRequest = ({ method = 'GET', url, headers = [], body = '' } = {}) =>
+  invoke('replay_request', { method, url, headers, body });
 export const clearDownloads = () => invoke('clear_downloads');
 export const removeDownload = (downloadId) => invoke('remove_download', { downloadId });
 
@@ -178,6 +201,8 @@ export const clearReadingList = () => invoke('clear_reading_list');
 // ── Settings & privacy ────────────────────────────────────────────────
 export const getSettings = () => invoke('get_settings');
 export const setSetting = (key, value) => invoke('set_setting', { key, value });
+export const saveNvidiaKey = (key, model) => invoke('save_nvidia_api_key', { key, model });
+export const testNvidiaModels = (key) => invoke('test_nvidia_models', { key });
 export const clearBrowsingData = (categories = []) => invoke('clear_browsing_data', { categories });
 export const listSitePermissions = () => invoke('list_site_permissions');
 export const setSitePermission = (origin, permission, decision) =>
@@ -216,6 +241,21 @@ export async function listen(event, handler) {
   return () => {};
 }
 
+/**
+ * Watch native window focus. Resolves to an unsubscribe function, or a no-op in
+ * the preview. Child webviews take DOM focus from the shell, so this is the
+ * reliable way to know whether the browser itself is in front.
+ */
+export async function watchWindowFocus(handler) {
+  const w = currentWindow();
+  if (!w || typeof w.onFocusChanged !== 'function') return () => {};
+  try {
+    return await w.onFocusChanged(({ payload }) => handler(!!payload));
+  } catch {
+    return () => {};
+  }
+}
+
 export async function openExternal(url) {
   if (isTauri() && window.__TAURI__.shell?.open) {
     return window.__TAURI__.shell.open(url);
@@ -242,6 +282,23 @@ export async function pickViewerFile(extensions) {
 export async function readViewerBytes(path) {
   if (!isTauri()) throw new Error('local file previews are available in the installed app');
   return invoke('read_viewer_bytes', { path });
+}
+
+/** WorkAny availability. Never includes provider credentials. */
+export async function generationInfo() {
+  return invoke('generation_info');
+}
+
+/** Start a generation job. `options` is a small object such as `{ language }`. */
+export async function generateArtifact(artifactType, prompt, options = {}) {
+  if (!isTauri()) throw new Error('generation is available in the installed app');
+  return invoke('generate_artifact', { artifactType, prompt, options });
+}
+
+/** Ask Rust to stop a running generation. Resolves to whether it was running. */
+export async function cancelGeneration(jobId) {
+  if (!isTauri()) return false;
+  return invoke('cancel_generation', { jobId });
 }
 
 export async function copyText(text) {

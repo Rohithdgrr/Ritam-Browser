@@ -1,6 +1,6 @@
 /** Home / start page rendering. */
 
-import { $, escapeHtml, greeting, formatTime } from '../lib/dom.js';
+import { $, escapeHtml, greeting, formatTime, localDay, startOfLocalDay } from '../lib/dom.js';
 import * as api from '../services/ipc.js';
 import { displayUrl, HOME_URL, monogram } from '../lib/url.js';
 import { store, refreshBookmarks } from '../state/store.js';
@@ -21,6 +21,8 @@ export async function renderHome() {
       ? 'This tab uses temporary browser storage. Browsing history and downloads are not saved; downloaded files remain on your device.'
       : 'A fast, calm place for the web — your data stays on this machine.';
   }
+
+  await renderDashboard(isPrivate);
 
   // Favorites grid
   const favWrap = $('#home-favorites');
@@ -70,6 +72,48 @@ export async function renderHome() {
 
   // Welcome kit fallback URL recorded via IPC (kept in sync with assets file)
   void HOME_URL;
+}
+
+function settingJson(raw, fallback) {
+  try {
+    const parsed = JSON.parse(raw ?? '');
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Clock, today's browsing time and the user's website shortcuts. */
+async function renderDashboard(isPrivate) {
+  const host = $('#home-dashboard');
+  if (!host) return;
+  if (isPrivate) {
+    host.innerHTML = '';
+    host.classList.add('hidden');
+    return;
+  }
+  const widgets = new Set(settingJson(store.settings.dashboard_widgets, ['clock', 'shortcuts', 'time']));
+  const shortcuts = settingJson(store.settings.website_shortcuts, []);
+  const parts = [];
+
+  if (widgets.has('clock')) {
+    parts.push(`<div class="home-widget"><span class="widget-label">Now</span><strong id="home-clock">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></div>`);
+  }
+  if (widgets.has('time')) {
+    let minutes = 0;
+    try {
+      const stats = await api.siteTimeSummary(1, localDay(), startOfLocalDay(0));
+      minutes = Math.round((stats.total_seconds ?? 0) / 60);
+    } catch { /* preview mode */ }
+    parts.push(`<div class="home-widget"><span class="widget-label">Today</span><strong>${minutes ? `${minutes}m` : '—'}</strong></div>`);
+  }
+  if (widgets.has('shortcuts') && Array.isArray(shortcuts) && shortcuts.length) {
+    parts.push(`<div class="home-widget wide"><span class="widget-label">Shortcuts</span><div class="home-shortcut-row">${shortcuts.map((shortcut) => `
+      <button class="quick-chip" data-shortcut-url="${escapeHtml(shortcut.url)}" title="${escapeHtml(shortcut.url)}">${escapeHtml(shortcut.title)}</button>`).join('')}</div></div>`);
+  }
+
+  host.innerHTML = parts.join('');
+  host.classList.toggle('hidden', parts.length === 0);
 }
 
 /** Wire one-time event handlers for the home view. */
@@ -134,6 +178,17 @@ export function wireHome({ onNavigate, onOpenPanel }) {
     const url = e.target.closest('[data-url]')?.getAttribute('data-url');
     if (url) onNavigate(url);
   });
+
+  $('#home-dashboard')?.addEventListener('click', (e) => {
+    const url = e.target.closest('[data-shortcut-url]')?.getAttribute('data-shortcut-url');
+    if (url) onNavigate(url);
+  });
+
+  // The clock only needs minute precision; update it while the app is open.
+  setInterval(() => {
+    const clock = $('#home-clock');
+    if (clock) clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, 30_000);
 
   $('#home-download-kit')?.addEventListener('click', () => {
     const a = document.createElement('a');

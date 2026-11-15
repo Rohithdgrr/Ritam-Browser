@@ -1,5 +1,6 @@
 mod commands;
 mod adblocker;
+mod atomic;
 mod db;
 mod error;
 mod models;
@@ -62,16 +63,63 @@ fn main_window_focused(app: &tauri::AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+/// The active profile's `custom_shortcuts` setting as `(action, combo)` pairs.
+/// The frontend and the backend validate the same shape; anything malformed is
+/// simply ignored here rather than breaking the browser's defaults.
+fn custom_shortcut_pairs(app: &tauri::AppHandle) -> Vec<(String, String)> {
+    let Some(db) = app.try_state::<db::DbState>() else {
+        return Vec::new();
+    };
+    let raw = {
+        let conn = db.conn();
+        crate::db::setting(&conn, "custom_shortcuts").unwrap_or_else(|| "{}".to_string())
+    };
+    let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&raw) else {
+        return Vec::new();
+    };
+    map.iter()
+        .filter_map(|(action, combo)| {
+            combo.as_str().map(|combo| (action.clone(), combo.to_string()))
+        })
+        .collect()
+}
+
 #[cfg(desktop)]
-fn register_shortcuts(app: &tauri::AppHandle) {
+pub(crate) fn register_shortcuts(app: &tauri::AppHandle) {
     let manager = app.global_shortcut();
     // Idempotent: drop any previous registration before (re-)adding them.
     let _ = manager.unregister_all();
-    for (accel, _) in SHORTCUTS {
+    let custom = custom_shortcut_pairs(app);
+    let overridden: Vec<&str> = custom.iter().map(|(action, _)| action.as_str()).collect();
+    for (accel, action) in SHORTCUTS {
+        // A custom combo replaces the built-in accelerator for its action.
+        if overridden.contains(action) {
+            continue;
+        }
         if let Err(err) = manager.register(*accel) {
             log::warn!("could not register global shortcut {accel}: {err}");
         }
     }
+    for (action, combo) in &custom {
+        if let Err(err) = manager.register(combo.as_str()) {
+            log::warn!("could not register custom shortcut {combo} for {action}: {err}");
+        }
+    }
+}
+
+/// Which action a pressed accelerator maps to: a custom override first, then
+/// the built-in table (minus any action the user replaced).
+#[cfg(desktop)]
+fn shortcut_action_for(app: &tauri::AppHandle, accel: &str) -> Option<String> {
+    let custom = custom_shortcut_pairs(app);
+    if let Some((action, _)) = custom.iter().find(|(_, combo)| combo.eq_ignore_ascii_case(accel)) {
+        return Some(action.clone());
+    }
+    let overridden: Vec<&str> = custom.iter().map(|(action, _)| action.as_str()).collect();
+    SHORTCUTS
+        .iter()
+        .find(|(combo, action)| combo.eq_ignore_ascii_case(accel) && !overridden.contains(action))
+        .map(|(_, action)| (*action).to_string())
 }
 
 #[cfg(not(desktop))]
@@ -122,11 +170,8 @@ pub fn run() {
                         return;
                     }
                     let accel = shortcut.to_string();
-                    if let Some((_, action)) = SHORTCUTS
-                        .iter()
-                        .find(|(a, _)| a.eq_ignore_ascii_case(&accel))
-                    {
-                        let _ = app.emit("shortcut", *action);
+                    if let Some(action) = shortcut_action_for(app, &accel) {
+                        let _ = app.emit("shortcut", action);
                     }
                 })
                 .build(),
@@ -134,6 +179,8 @@ pub fn run() {
 
     builder
         .manage(TabWebviewManager::new())
+        .manage(commands::inspector::InspectorState::default())
+        .manage(commands::generation::GenerationState::default())
         .setup(|app| {
             #[cfg(desktop)]
             app.on_menu_event(|app, event| {
@@ -250,6 +297,8 @@ pub fn run() {
             commands::tabs::duplicate_tab,
             commands::tabs::close_other_tabs,
             commands::tabs::sync_tab_windows,
+            commands::tabs::ensure_tab_view,
+            commands::tabs::sleep_tab,
             // Workspaces
             commands::profiles::list_profiles,
             commands::profiles::create_profile,
@@ -276,6 +325,7 @@ pub fn run() {
             // Bookmarks, history, notes, downloads
             commands::data::list_bookmarks,
             commands::data::save_bookmark,
+            commands::data::update_bookmark_details,
             commands::data::delete_bookmark,
             commands::data::toggle_favorite,
             commands::data::search_history,
@@ -287,7 +337,18 @@ pub fn run() {
             commands::data::list_downloads,
             commands::data::record_download,
             commands::data::clear_downloads,
+            commands::scan::scan_download,
+            commands::stats::record_site_time,
+            commands::stats::site_time_summary,
             commands::data::remove_download,
+            // Developer workbench (page-level capture, replay, mocks)
+            commands::inspector::inspector_read,
+            commands::inspector::inspector_request,
+            commands::inspector::set_network_capture,
+            commands::inspector::clear_capture,
+            commands::inspector::set_mock_rules,
+            commands::inspector::request_dom_snapshot,
+            commands::inspector::replay_request,
             // Reading list ("save for later")
             commands::data::list_reading_items,
             commands::data::save_reading_item,
@@ -301,6 +362,8 @@ pub fn run() {
             // Settings & privacy
             commands::settings::get_settings,
             commands::settings::set_setting,
+            commands::settings::save_nvidia_api_key,
+            commands::settings::test_nvidia_models,
             commands::settings::clear_browsing_data,
             commands::settings::list_site_permissions,
             commands::settings::set_site_permission,
@@ -308,7 +371,16 @@ pub fn run() {
             commands::settings::get_app_info,
             // Local file viewer (read-only previews)
             commands::viewer::read_viewer_bytes,
+            // WorkAny generation (optional sidecar; disabled when absent)
+            commands::generation::generation_info,
+            commands::generation::generate_artifact,
+            commands::generation::cancel_generation,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Ritam Browser");
+        .build(tauri::generate_context!())
+        .expect("error while building Ritam Browser")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                commands::generation::shutdown(app_handle);
+            }
+        });
 }

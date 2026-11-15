@@ -185,10 +185,29 @@ pub fn detect_installed_browsers() -> Vec<BrowserSource> {
 
 // ── Parsers (pure, unit-tested) ───────────────────────────────────────
 
-fn collect_chromium_bookmarks(node: &serde_json::Value, out: &mut Vec<ParsedBookmark>) {
+/// Folder names are carried down the tree so an imported Chrome bookmark
+/// keeps the folder the user filed it under.
+fn nested_folder(parent: &str, name: &str) -> String {
+    let name: String = name.trim().chars().take(60).collect();
+    if name.is_empty() {
+        return parent.to_string();
+    }
+    if parent.is_empty() {
+        name
+    } else {
+        format!("{parent}/{name}").chars().take(60).collect()
+    }
+}
+
+fn collect_chromium_bookmarks(node: &serde_json::Value, folder: &str, out: &mut Vec<ParsedBookmark>) {
     if let Some(children) = node.get("children").and_then(|c| c.as_array()) {
         for child in children {
-            collect_chromium_bookmarks(child, out);
+            let child_folder = if child.get("type").and_then(|t| t.as_str()) == Some("folder") {
+                nested_folder(folder, child.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+            } else {
+                folder.to_string()
+            };
+            collect_chromium_bookmarks(child, &child_folder, out);
         }
     }
     if node.get("type").and_then(|t| t.as_str()) == Some("url") {
@@ -199,6 +218,7 @@ fn collect_chromium_bookmarks(node: &serde_json::Value, out: &mut Vec<ParsedBook
             out.push(ParsedBookmark {
                 title: name.chars().take(500).collect(),
                 url: url.chars().take(2_048).collect(),
+                folder: folder.to_string(),
             });
         }
     }
@@ -210,7 +230,7 @@ fn parse_chromium_bookmarks(raw: &str) -> Result<Vec<ParsedBookmark>, AppError> 
     let mut out = Vec::new();
     if let Some(roots) = root.get("roots").and_then(|r| r.as_object()) {
         for value in roots.values() {
-            collect_chromium_bookmarks(value, &mut out);
+            collect_chromium_bookmarks(value, "", &mut out);
         }
     }
     out.truncate(MAX_BOOKMARKS);
@@ -222,19 +242,25 @@ fn parse_safari_bookmarks(bytes: &[u8]) -> Result<Vec<ParsedBookmark>, AppError>
     let value = plist::Value::from_reader(std::io::Cursor::new(bytes))
         .map_err(|_| AppError::InvalidInput("Safari bookmarks file is not a valid plist".into()))?;
     let mut out = Vec::new();
-    collect_safari_bookmarks(&value, &mut out);
+    collect_safari_bookmarks(&value, "", &mut out);
     out.truncate(MAX_BOOKMARKS);
     Ok(out)
 }
 
-fn collect_safari_bookmarks(value: &plist::Value, out: &mut Vec<ParsedBookmark>) {
+fn collect_safari_bookmarks(value: &plist::Value, folder: &str, out: &mut Vec<ParsedBookmark>) {
     if let Some(array) = value.as_array() {
         for item in array {
-            collect_safari_bookmarks(item, out);
+            collect_safari_bookmarks(item, folder, out);
         }
         return;
     }
     let Some(dict) = value.as_dictionary() else { return };
+    let title = dict.get("Title").and_then(|v| v.as_string()).unwrap_or("");
+    let child_folder = if dict.contains_key("Children") && !title.is_empty() {
+        nested_folder(folder, title)
+    } else {
+        folder.to_string()
+    };
     if let Some(url) = dict.get("URLString").and_then(|v| v.as_string()) {
         let title = dict
             .get("URIDictionary")
@@ -245,10 +271,11 @@ fn collect_safari_bookmarks(value: &plist::Value, out: &mut Vec<ParsedBookmark>)
         out.push(ParsedBookmark {
             title: title.chars().take(500).collect(),
             url: url.chars().take(2_048).collect(),
+            folder: folder.to_string(),
         });
     }
     if let Some(children) = dict.get("Children") {
-        collect_safari_bookmarks(children, out);
+        collect_safari_bookmarks(children, &child_folder, out);
     }
 }
 
@@ -331,6 +358,7 @@ fn firefox_bookmarks(conn: &Connection) -> Vec<ParsedBookmark> {
         Ok(ParsedBookmark {
             title: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
             url: r.get::<_, String>(1)?,
+            folder: String::new(),
         })
     });
     let Ok(rows) = rows else { return Vec::new() };
@@ -582,6 +610,15 @@ mod tests {
         let parsed = parse_chromium_bookmarks(CHROME_BOOKMARKS).unwrap();
         assert_eq!(parsed.len(), 3);
         assert!(parsed.iter().any(|b| b.title == "MDN"));
+        // The nested bookmark remembers the folder Chrome filed it under.
+        assert_eq!(
+            parsed.iter().find(|b| b.title == "MDN").map(|b| b.folder.as_str()),
+            Some("Docs")
+        );
+        assert_eq!(
+            parsed.iter().find(|b| b.title == "Rust").map(|b| b.folder.as_str()),
+            Some("")
+        );
     }
 
     #[test]

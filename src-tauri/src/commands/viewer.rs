@@ -14,7 +14,7 @@ const MAX_VIEW_BYTES: u64 = 64 * 1024 * 1024;
 pub const VIEWABLE_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "svg", "ico", //
     "mp4", "webm", "mov", "m4v", "ogv", //
-    "pdf", "docx", "xlsx", "csv", "json", "md", "markdown", "txt", "log",
+    "pdf", "docx", "xlsx", "pptx", "csv", "json", "md", "markdown", "txt", "log",
 ];
 
 /// Read a viewable file as raw bytes. The extension allowlist keeps this from
