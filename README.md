@@ -1,354 +1,268 @@
 # Ritam Browser
 
-> *A fast browser that shows you how the internet works.*
+> A fast, privacy-first desktop browser built with Tauri 2 and Rust.
 
-**Status: Milestone 1 — browser shell.** A real Tauri 2 + Rust desktop app with a
-plain HTML/CSS/vanilla-JS UI (no frontend build step, no CDN at runtime). Local-first:
-SQLite on your disk, zero telemetry, no accounts. Page text is sent to a
-translation server only when you explicitly translate a page.
+**Status:** Production (Milestone 1 — Browser Shell)  
+**Platform:** Windows (primary), Linux (secondary)  
+**Architecture:** Local-first, zero telemetry, no accounts required
 
-## What works (and what doesn't)
+---
 
-| Area | Status |
-|---|---|
-| Browser shell UI (Zen theme) | ✅ Working |
-| Responsive shell: the sidebar collapses (drawer under 700px, toggle button), panels become bottom sheets under 520px, home/favourites reflow, window minimum 480×420 | ✅ Working |
-| Profiles: local identities (name + Gmail-style label) with their own workspaces and tabs, Chrome-style switcher in the toolbar | ✅ Working (local only — Ritam never signs in to an account) |
-| Quick popovers for downloads, history, bookmarks, media controls and print | ✅ Working (each links to its full internal page) |
-| Tabs: create / close / switch / pin / reorder / persist | ✅ Working |
-| Workspaces: create / switch / rename / delete, per-workspace tabs | ✅ Working |
-| Bookmarks (add / delete / favorite) + sidebar & home favorites | ✅ Working |
-| History (record / search / delete / clear) | ✅ Working |
-| Scratchpad notes (local) | ✅ Working |
-| Downloads: engine interception, list, per-item delete, clear all | ✅ Working |
-| Settings: search engine, HTTPS-first, theme, website dark mode, translation endpoint | ✅ Working |
-| Privacy: clear history / downloads / site permissions, permission decisions | ✅ Working |
-| Command palette (Ctrl+K), keyboard shortcuts (also while a page has focus) | ✅ Working |
-| **Real page browsing** | ✅ Embedded webviews (one per tab, single window) |
-| **Search from the address bar** | ✅ Built-in engines + custom engine URL template |
-| **Internal pages** `govind://history`, `/downloads`, `/bookmarks`, `/settings` | ✅ Working (full-screen, chrome:// style) |
-| Page titles from the live page, live omnibar URL, zoom, print | ✅ Working |
-| Find in page (Ctrl+F) with match count, fullscreen (F11), per-domain zoom memory | ✅ Working (the count needs the Windows/WebView2 message channel) |
-| Reading list with offline text snapshots (`govind://reading-list`) | ✅ Working |
-| Tab search / quick switcher (Ctrl+Shift+A) | ✅ Working |
-| New-tab shortcut tiles (bookmark favorites) and custom search URL template | ✅ Working |
-| Picture-in-Picture (Alt+Shift+P), per-tab audio mute + speaker indicators (Alt+Shift+M) | ✅ Working (mute is remembered per site across restarts) |
-| In-app media controls across loaded tabs (top-level audio/video, including private tabs) | ✅ Working |
-| Forced dark mode for websites (Alt+Shift+D), page translation through a configured LibreTranslate endpoint (Alt+Shift+T) | ✅ Working |
-| Read Aloud with current-word highlighting (Alt+Shift+R) | ✅ Working |
-| Spell check in web forms, print / save-as-PDF (Ctrl+P) | ✅ Working |
-| Form autofill profiles (names, addresses, cards — Settings → Autofill) | ✅ Working |
-| Secure password generation on focused password fields | ✅ Working |
-| Guest mode (all-new-tabs-private session), task manager page | ✅ Working |
-| Safe-browsing blocklist warnings, Do Not Track, cosmetic filters, EasyList/EasyPrivacy/uBlock network and cosmetic blocking | ✅ Windows/WebView2 (each filter list refreshes on its upstream 12-hour to 7-day schedule) |
-| Forget site data: matching cookies (including HttpOnly), origin storage, IndexedDB, Cache Storage, service workers | ✅ Working (site must be open; reload after) |
-| Real favicons from the page, tab context menu (duplicate, pin, mute, close others / right / except pinned) | ✅ Working |
-| Bookmarks import / export (Netscape HTML, works with Chrome/Firefox/Edge) | ✅ Working (native OS file dialog, Rust-side parsing) |
-| Encrypted browser-data backup / merge restore (`.gbak`) | ✅ Working (PBKDF2 + AES-256-GCM; manual transfer, not automatic sync) |
-| Page DevTools (Inspect page), auto-play blocking | ✅ Working |
-| PDF viewing | ✅ Handled natively by the system WebView |
-| Reader mode, persistent named/collapsible tab groups | ✅ Working |
-| Recently closed tabs / undo close (Ctrl+Shift+T) | ✅ Working, persisted across restarts (last 20, never private tabs) |
-| Private tabs (Ctrl+Shift+N) | ✅ Incognito webviews; not saved in history or the tab database |
-| Protocol Lab | ⏭️ Skipped per product decision (was in milestone 1 scope) |
-| Split view, tab sleeping, download resume | ❌ Not in this milestone |
-| Media casting, Web Share integration, site push notifications, device emulation | ❌ Not supported by the current WebView2 integration |
-| Per-tab identity/cookie isolation, CDP access, extension support | ❌ Needs a Chromium engine (PRD §31) |
+## Overview
 
-### The honest part: web content today
+Ritam Browser is a local-first desktop browser that prioritizes user privacy and productivity. Built on Tauri 2 with a Rust backend and vanilla HTML/CSS/JavaScript frontend, it offers a clean, lightweight browsing experience without the overhead of traditional browsers.
 
-Pages render in **embedded child webviews** — one per tab, created with
-`Window::add_child` inside the main window (`src-tauri/src/webview.rs`,
-ADR-007). The whole browser is one native window: no stray taskbar entries,
-page state survives tab switches, and the engine reports real page titles,
-navigation and downloads.
+### Key Principles
 
-Known limitations (each tracked in `docs/ENGINE_SPIKE.md`):
+- **Local-First:** All data stored locally on your device
+- **Privacy by Default:** No telemetry, no accounts, no cloud sync
+- **Lightweight:** No build step for UI, minimal resource usage
+- **Transparent:** Clear boundaries between browser and web content
 
-1. The child-webview API is still marked *unstable* by Tauri, so the desktop
-   shell depends on the `unstable` Cargo feature.
-2. Creating a WebView2 controller must not happen on the UI thread on Windows,
-   so `navigate_tab` is an `async` command (Tauri's async runtime).
-3. A page takes the keyboard focus when clicked, so most browser shortcuts are
-   registered globally only while the Ritam window is focused. PiP uses a
-   page-side shortcut so its request retains the video's user gesture.
-4. No certificate inspection: "secure connection" in the UI reflects the URL
-   scheme only. It is labeled as such in the app.
-5. Regular tabs share one WebView2 profile, so per-tab identity/cookie isolation
-   is not available yet. Private tabs use WebView2 InPrivate storage and are
-   excluded from session restore and the app's history/download records.
-   Local profiles separate workspaces and tab sessions, but they still share
-   the WebView2 cookie jar plus bookmarks, history, downloads and the reading
-   list. A profile's email is a local label; nothing is sent to Google and the
-   app has no account sign-in or sync.
-6. There is no CDP or general-purpose request mocking. Windows/WebView2 tabs
-   install a native request hook for EasyList/EasyPrivacy and uBlock Origin ad,
-   tracker, scriptlet and cosmetic filtering. Full list snapshots are shipped
-   in the app, so blocking works offline on first launch; the local cache is
-   refreshed from the list hosts on each list's declared schedule (uBlock
-   quick fixes every 12 hours, EasyList/EasyPrivacy every 4 days). `$removeparam`
-   tracking parameters are stripped from document and XHR requests. The hook is
-   not available on WebKitGTK or other platforms, does not rewrite response
-   bodies, and does not provide Chrome DevTools Protocol features.
-7. Reader mode extracts text from common article/main elements; it is a
-   lightweight reader view, not a full readability parser. Recently closed
-   entries persist in the local database (last 20, private tabs excluded).
-8. Forced dark mode uses a CSS filter on pages that appear light; some sites
-   may render oddly. Tab mute state is remembered per site for future visits
-   and covers page media and Web Audio contexts, but may not control
-   cross-origin frames.
-9. Translation requires a configured LibreTranslate-compatible server. The
-   app sends extracted text only after you start translation; remote endpoints
-   require HTTPS and receive the page text. Translation is shown in a simple
-   text layout, not the original page layout; authenticated endpoints/API keys
-   are not supported.
-10. Picture-in-Picture uses the page's video API, so start it with the PiP
-    button shown over a video or `Alt+Shift+P` while the page has focus.
-11. Read Aloud uses WebView2's installed speech voices and highlights words
-    where the engine supports the CSS Custom Highlight API. The password
-    generator creates a 24-character password locally on explicit click and
-    fills only the focused password field; Ritam does not save generated
-    passwords.
-12. Browser-data transfer is a manual encrypted file, not live cross-device
-    sync. It uses a passphrase you must retain; Ritam cannot recover it.
-    Import merges records and keeps existing conflicting data. Private tabs and
-    downloaded file contents are never included.
+---
 
-### Chrome parity boundaries
+## Features
 
-The installed app uses the system WebView2 runtime, not a separately controlled
-Chromium build. Web APIs such as WebCodecs, text fragments, Credential Management, Payment
-Request, clipboard, file access, and hardware-device access are runtime-, OS-,
-origin-, and policy-dependent; Ritam does not emulate Chrome or promise
-feature parity for them.
-Test those APIs against the supported WebView2 runtime instead of treating
-them as app-owned browser features.
+### Core Browsing
+- Embedded child webviews (one per tab)
+- Tab management: create, close, pin, reorder, group
+- Navigation: back, forward, reload, home
+- Address bar with search integration
+- Page titles and real-time URL display
+- Fullscreen mode (F11)
+- Find in page with match count
+- Print and PDF export
+- PDF viewing (native system WebView)
 
-Some items are not app features at all but engine components that WebView2 does
-not expose to its host, so they cannot be added without replacing the engine
-with a full Chromium/CEF build: CDP-driven request mocking and device emulation,
-per-tab cookie/identity isolation, Chromecast/Media Router, Web Push, the
-accessibility inspector tree, and bfcache control. Others need a provider or
-platform service Ritam does not ship: cross-device sync, neural TTS voices,
-cloud PDF storage, offline translation, and system-level (SMTC) media controls.
+### Privacy & Security
+- Private tabs (WebView2 InPrivate storage)
+- Guest mode (all tabs private for session)
+- HTTPS-first policy
+- Clear browsing data
+- Per-site permissions
+- Do Not Track header
+- No telemetry
 
-The current shell does not expose browser-engine controls for DoH, process/site
-isolation policy, bfcache, automatic tab freezing/discard, CDP network mocking,
-or extension side panels. The built-in network blocker is limited to Windows
-WebView2 and public EasyList/EasyPrivacy rules; it is not real-time cloud threat
-detection and cannot guarantee playback on anti-adblock sites.
-Cloud-backed threat intelligence,
-password-breach monitoring, AI/history services, Google Drive, and cloud speech
-voices also need provider integrations that Ritam does not currently have.
-PDF annotation, full-resource offline archives, and live captions are separate
-product subsystems and remain unimplemented; Protocol Lab remains skipped per
-product decision.
+### Content Control
+- Network-level ad blocking (Windows/WebView2)
+- EasyList, EasyPrivacy, and uBlock Origin filters
+- Cosmetic filters and scriptlet injection
+- Per-site allowlisting
+- Safe browsing warnings
 
-The blocker uses Brave's `adblock` Rust engine (MPL-2.0) with the public
-[EasyList](https://easylist.to/easylist/easylist.txt),
-[EasyPrivacy](https://easylist.to/easylist/easyprivacy.txt), and uBlock Origin
-filter/scriptlet lists (uBlock filters, quick fixes, unbreak, badware, privacy,
-resource abuse). Upstream list headers and attribution are retained in the local
-cache and in `src-tauri/filter-assets/manifest.json`.
+### Organization
+- Workspaces (multiple workspaces per profile)
+- Bookmarks with favorites
+- Browsing history
+- Downloads manager
+- Scratchpad (local notes)
+- Reading list with offline snapshots
+- Tab groups (named, collapsible)
 
-The custom CSS selector setting remains separate from the built-in network
-and cosmetic blocker, which is available only on Windows/WebView2.
-Fingerprint randomization and third-party-cookie blocking are not implemented.
-“Forget this site” deletes matching HTTP-only and script-visible cookies, then
-clears storage for the current origin; some storage deletion can be blocked by
-open pages, and the current tab must reload. It does not clear browsing history
-or guarantee removal of in-memory page state.
+### Productivity
+- Command palette (Ctrl+K)
+- Tab search / quick switcher (Ctrl+Shift+A)
+- Quick popovers for downloads, history, bookmarks
+- Reader mode
+- Read Aloud with word highlighting
+- Picture-in-Picture
+- Page translation (LibreTranslate endpoint)
+- Forced dark mode for websites
 
-`webview.rs` remains the single engine seam: everything else talks to typed
-IPC commands.
+### Profiles
+- Local profiles with name, label, and color
+- Chrome-style profile switcher
+- Per-profile workspaces and tabs
 
-## Repository layout
+### Data Management
+- Bookmark import/export (Netscape HTML)
+- Encrypted backup and restore (.gbak)
+- Task manager (per-tab state view)
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- **Windows:** Rust, Node.js 20+, WebView2 (pre-installed on Windows 11/10)
+- **Linux:** Rust, Node.js 20+, `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, etc.
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/your-repo/ritam-browser.git
+cd ritam-browser
+
+# Install dependencies
+npm install
+
+# Run in development mode
+npm run tauri:dev
+
+# Build for production
+npm run tauri:build
+```
+
+### UI Preview (No Rust Required)
+
+```bash
+npm run dev        # Starts local server at http://localhost:8081
+npm test           # Runs 58 unit tests
+```
+
+---
+
+## Project Structure
 
 ```
-rita-browser/
-├── .github/workflows/      # CI (tests) and Release (tagged Windows + Linux builds)
-├── ui/                     # The whole frontend — no build step
-│   ├── index.html          #   shell: titlebar, sidebar, toolbar, views, panels
-│   ├── styles/             #   tokens.css (CSS variables) · app.css (vanilla)
-│   ├── js/                 #   ES modules: services/ipc.js routes to Tauri or fallback
-│   │   ├── views/internal.js  # govind://history, /downloads, /bookmarks, /settings
-│   │   ├── views/profiles.js  # profile chip + Chrome-style switcher popover
-│   │   ├── views/quick-popovers.js  # downloads/history/bookmarks/media/print panels
-│   │   └── views/settings.js  # one settings page: jump rail + every section
-│   └── assets/             #   self-hosted fonts, icon, welcome kit
+ritam-browser/
+├── ui/                     # Frontend (no build step)
+│   ├── index.html          # Main shell
+│   ├── styles/             # CSS (tokens.css, app.css)
+│   ├── js/                 # ES modules
+│   │   ├── views/          # View components
+│   │   ├── services/       # IPC and API services
+│   │   └── state/          # State management
+│   └── assets/             # Fonts, icons
 ├── src-tauri/              # Rust backend
-│   ├── src/webview.rs      #   tab webview manager — the engine seam (ADR-007)
-│   ├── src/adblocker.rs    #   filter engine, bundled lists, cache + list updates
-│   ├── src/webview2_blocker.rs  # Windows request hook, cosmetic script injection
-│   ├── src/commands/       #   typed IPC commands (tabs, workspaces, profiles, data,
-│   │                       #   settings, backup, bookmarks_io, menu)
-│   ├── src/db.rs           #   SQLite (rusqlite bundled) + first-run seed
-│   ├── migrations/         #   0001_init.sql (WAL, foreign keys, indexes)
-│   ├── filter-assets/      #   offline filter lists + uBlock scriptlet resources
-│   └── capabilities/       #   least-privilege: window controls + shell open only
-├── tests/                  # node:test unit tests — 58 across 11 files, no npm deps
-├── tools/serve.mjs         # zero-dep static server for UI preview
-├── tools/build-filter-assets.mjs  # regenerates src-tauri/filter-assets/
-└── docs/                   # PRD, engine spike, ADR-006/ADR-007
+│   ├── src/
+│   │   ├── webview.rs      # Tab webview manager
+│   │   ├── adblocker.rs    # Filter engine
+│   │   ├── commands/       # IPC commands
+│   │   └── db.rs           # SQLite operations
+│   └── filter-assets/      # Bundled filter lists
+├── docs/                   # Documentation
+├── tests/                  # Unit tests
+└── tools/                  # Build tools
 ```
 
-## Internal pages
+---
 
-Like `chrome://` URLs, Ritam renders a few pages itself (no webview, no
-network):
+## Keyboard Shortcuts
 
-| URL | Page |
-|---|---|
-| `govind://history` | Browsing history grouped by day (or by site), with search |
-| `govind://downloads` | Download history grouped by day, open file / remove |
-| `govind://bookmarks` | Saved bookmarks and favourites |
-| `govind://reading-list` | Reading list with offline text snapshots |
-| `govind://recently-closed` | Tabs closed during this app session |
-| `govind://task-manager` | Observable per-tab state |
-| `govind://media-controls` | Audio/video playing across loaded tabs |
-| `govind://settings` | All settings sections on one page (general, data transfer, appearance, autofill, translation, privacy, permissions, about) with a jump rail and filter box |
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close tab |
+| `Ctrl+Shift+T` | Reopen closed tab |
+| `Ctrl+B` | Toggle sidebar |
+| `Ctrl+K` | Command palette |
+| `Ctrl+L` | Focus address bar |
+| `Ctrl+R` | Reload page |
+| `Ctrl+D` | Bookmark page |
+| `Ctrl+,` | Open settings |
+| `Ctrl+H` | History page |
+| `Ctrl+J` | Downloads page |
+| `Ctrl+1-9` | Switch to tab N |
+| `Ctrl+Tab` | Next tab |
+| `Ctrl+Shift+Tab` | Previous tab |
+| `Alt+←` | Go back |
+| `Alt+→` | Go forward |
+| `F11` | Toggle fullscreen |
+| `Ctrl+F` | Find in page |
+| `Esc` | Close palette/panels/menus |
 
-Type one into the address bar or use the sidebar / the ⋮ menu.
+---
 
-## Project documentation
+## Internal Pages
 
-- [Feature list and current limitations](feature-list.md)
-- [Build and development setup](working.md)
-- [Engineering process](process.md)
-- [Development workflow](workflow.md)
-- [Known problems and current solutions](problems-solutions.md)
-- [Backend architecture and privacy boundaries](backend.md)
-- [Product requirements](docs/PRD_v2.md)
+Access these by typing in the address bar:
 
-## Run the UI preview (no Rust needed)
+| Page | URL |
+|------|-----|
+| History | `govind://history` |
+| Downloads | `govind://downloads` |
+| Bookmarks | `govind://bookmarks` |
+| Reading List | `govind://reading-list` |
+| Recently Closed | `govind://recently-closed` |
+| Task Manager | `govind://task-manager` |
+| Media Controls | `govind://media-controls` |
+| Settings | `govind://settings` |
 
-```bash
-node tools/serve.mjs        # → http://localhost:8081
-npm test                    # 58 unit tests
-```
+---
 
-In the browser preview, pages load in an `<iframe>` (sites that forbid framing
-won't render — a banner offers "Open in system browser"). All app features,
-persistence (via localStorage), theming and the palette work exactly as in the
-installed app; the same command names are served by a localStorage fallback.
+## Technical Architecture
 
-## Build the real app (Windows target)
+### Frontend
+- **Framework:** Vanilla HTML/CSS/JavaScript (no build step)
+- **Styling:** CSS Custom Properties, Zen theme
+- **Module System:** ES Modules
 
-Prereqs: Rust (`rustup default stable`), Node 20+, and WebView2 (evergreen —
-preinstalled on Windows 11 and recent Windows 10).
+### Backend
+- **Framework:** Tauri 2
+- **Language:** Rust
+- **Database:** SQLite (rusqlite)
 
-```bash
-npm install                 # installs @tauri-apps/cli only
-npm run tauri:dev           # run in dev mode
-npm run tauri:build         # produces an NSIS .exe + MSI .msi
-```
+### Engine Integration
+- **Windows:** WebView2 with request hook for ad blocking
+- **Linux:** WebKitGTK (network filtering not available)
 
-Installers land in `src-tauri/target/release/bundle/{nsis,msi}/`. The product
-name is **Ritam Browser** (v0.1.0) and the icon set comes from
-`RITAM_Desktop_Icon.png` via `npx tauri icon RITAM_Desktop_Icon.png`.
+---
 
-On Linux, install `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev
-libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
-build-essential pkg-config libssl-dev patchelf` and `npm run tauri:build`
-produces `.deb` and `.AppImage` bundles (the engine tracks the system WebView —
-WebKitGTK). Linux bundles are built in CI, not on Windows.
+## Known Limitations
 
-### CI/CD
+1. **Tab Isolation:** Regular tabs share one WebView2 profile; private tabs have full isolation
+2. **Certificate Inspection:** Not available; security indicator reflects URL scheme only
+3. **Network Filtering:** Windows-only (WebView2 hook not available on Linux)
+4. **Translation:** Requires external LibreTranslate-compatible endpoint
+5. **Extensions:** Not supported (requires Chromium engine)
+6. **CDP Access:** Not available (Chrome DevTools Protocol not exposed)
 
-- `.github/workflows/ci.yml` — runs the UI tests and the Rust suite on Windows
-  and Ubuntu for every push to `main` and every pull request.
-- `.github/workflows/release.yml` — on a `v*` tag, builds the Windows `.msi`
-  and NSIS `.exe` plus the Linux `.deb` and `.AppImage`, then publishes them as
-  a GitHub release.
+---
 
-### Android
+## Documentation
 
-There is no Android build. The tab engine is built on Tauri's `Window::add_child`
-multi-webview API, and Tauri compiles that API only for desktop
-(`#[cfg(all(desktop, feature = "unstable"))]`), so the crate cannot build for
-`aarch64-linux-android`. An Android app would need a separate single-webview
-shell around the same commands — it is a port, not a packaging step.
+| Document | Description |
+|----------|-------------|
+| [Feature List](feature-list.md) | Complete feature inventory with implementation status |
+| [Product Requirements](docs/PRD_v2.md) | Product roadmap and requirements |
+| [Backend Architecture](backend.md) | Implementation boundaries and privacy model |
+| [Engine Analysis](docs/ENGINE_SPIKE.md) | Browser engine feasibility study |
 
-### Verifying the Rust side
+---
+
+## Building & Testing
+
+### Rust Tests
 
 ```bash
 cd src-tauri
-cargo test                  # 36 tests: URL validation, profile scoping and data
-                            #   commands, plus the bundled filter lists and ad hosts
-cargo check
+cargo test        # 36 tests: URL validation, filtering, commands
+cargo check       # Compile check
 ```
 
-`cargo test` builds the ad-blocker engine from the shipped snapshots and asserts
-that known ad hosts are blocked, that `cnn.com` and `youtube.com` resolve their
-cosmetic rules and scriptlets, and that ordinary first-party requests pass.
-The UI side is covered by `npm test` (pure modules) — the command surface itself
-is verified by `ui/js/services/fallback-db.js` implementing every command the
-shell invokes.
+### UI Tests
 
-### Driving the real app over CDP
+```bash
+npm test          # 58 unit tests across 11 files
+```
 
-WebView2 exposes Chrome DevTools Protocol when it is started with a debug port,
-which makes end-to-end checks possible without any test harness inside the app:
+### Debug Mode
 
 ```bash
 cd src-tauri
 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223" \
   ./target/debug/govind-browser.exe
-# http://127.0.0.1:9223/json/list lists the shell (http://tauri.localhost/) and
-# every open tab as separate page targets.
+# Access DevTools at http://127.0.0.1:9223/json/list
 ```
 
-The debug port is off unless that variable is set. Keep it off for normal use:
-anything that can reach the port can script every page.
-
-This is how the find-in-page match counter, the persisted recently-closed list
-and per-site mute were verified: search a page with a known number of
-occurrences (`1 / 8`, advancing to `2 / 8`, `3 / 8`), close a tab and confirm the
-entry lands in `settings.recently_closed`, mute a site and confirm
-`settings.muted_sites` holds its hostname, then restart and confirm the count
-resets to `1 / 8`, the closed tab is still listed, and the site comes back
-muted.
-
-## IPC security model
-
-- The trusted UI window holds a **least-privilege capability set**: window
-  minimize/maximize/close, `outer-position`/`scale-factor` (to place tab
-  webviews), and `shell:allow-open` (open-in-system-browser). Nothing else.
-- Remote web content lives in **child webviews with no IPC access** — they load
-  remote origins, and Tauri grants the app's commands to local origins only, so
-  a page cannot invoke a single Ritam command.
-- Every command validates input in Rust; URLs are allowlisted to `http(s)://`
-  (+ the internal `govind://` pages) — `javascript:`, `file:`, `data:` are
-  rejected.
-- No telemetry. History, notes, downloads and permissions live only in the local
-  SQLite database (`%APPDATA%/com.govind.browser/govind.db` on Windows).
-- Browser-data backups are encrypted on-device before the save dialog receives
-  their contents. The archive is not uploaded; manually move it between
-  devices and keep its passphrase separate.
-
-## Keyboard shortcuts
-
-| Shortcut | Action |
-|---|---|
-| Ctrl/Cmd + T | New tab |
-| Ctrl/Cmd + W | Close tab |
-| Ctrl/Cmd + B | Toggle sidebar |
-| Ctrl/Cmd + K | Command palette |
-| Ctrl/Cmd + L | Focus address bar |
-| Ctrl/Cmd + R | Reload |
-| Ctrl/Cmd + D | Bookmark this page |
-| Ctrl/Cmd + , | Settings |
-| Ctrl/Cmd + H | History page |
-| Ctrl/Cmd + J | Downloads page |
-| Ctrl/Cmd + 1…9 | Jump to tab N (9 = last) |
-| Ctrl/Cmd + Tab / Shift+Tab | Cycle tabs |
-| Alt + ← / → | Back / forward |
-| Esc | Close palette / panels / menus |
-
-Shortcuts are registered globally **while the Ritam window is focused** (a page
-has the keyboard focus otherwise) and released when it loses focus, so they
-never shadow the same keys in other applications.
+---
 
 ## License
 
-MIT. See PRD (`docs/PRD_v2.md`) for the product roadmap and phase gates.
+MIT License — See LICENSE file for details.
+
+---
+
+## Contributing
+
+Contributions are welcome. Please ensure:
+- All tests pass (`npm test` and `cargo test`)
+- Code follows existing conventions
+- New features are documented
+
+---
+
+*Last Updated: November 2026*

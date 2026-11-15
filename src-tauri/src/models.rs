@@ -121,6 +121,13 @@ pub struct AppInfo {
     pub version: String,
     pub milestone: String,
     pub engine: String,
+    pub engine_detail: String,
+    pub ui: String,
     pub storage: String,
+    pub privacy: String,
+    pub platforms: String,
+    pub license: String,
     pub telemetry: String,
+    pub repository: String,
+    pub description: String,
 }

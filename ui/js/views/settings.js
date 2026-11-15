@@ -305,18 +305,67 @@ async function renderCategory(category, host = $('#settings-cards')) {
     <section class="settings-card about-hero">
       <div class="about-logo">G</div>
       <div class="about-name">Ritam Browser</div>
-      <div class="about-ver">v${info?.version ?? '0.1.0'} · ${info?.milestone ?? 'Milestone 1 — Browser shell'}</div>
+      <div class="about-ver">v${info?.version ?? '0.1.0'} · ${info?.milestone ?? 'Milestone 1'}</div>
+      <p class="about-desc">${escapeHtml(info?.description ?? 'A fast, privacy-first desktop browser.')}</p>
     </section>
     <section class="settings-card">
+      <h4>Technology Stack</h4>
       <table class="about-table">
         <tbody>
-          <tr><td>Engine</td><td>${escapeHtml(info?.engine ?? 'System WebView2 via Tauri 2')}</td></tr>
-          <tr><td>UI</td><td>HTML · CSS · vanilla JS (no build step)</td></tr>
-          <tr><td>Data</td><td>${escapeHtml(info?.storage ?? 'SQLite at the OS app-data directory')}</td></tr>
-          <tr><td>Telemetry</td><td>${escapeHtml(info?.telemetry ?? 'disabled')}</td></tr>
-          <tr><td>License</td><td>MIT</td></tr>
+          <tr><td>Engine</td><td>${escapeHtml(info?.engine ?? 'WebView2 via Tauri 2')}</td></tr>
+          <tr><td>Details</td><td>${escapeHtml(info?.engine_detail ?? 'Window-embedded child webviews')}</td></tr>
+          <tr><td>UI Framework</td><td>${escapeHtml(info?.ui ?? 'Vanilla HTML/CSS/JS')}</td></tr>
+          <tr><td>Database</td><td>${escapeHtml(info?.storage ?? 'SQLite')}</td></tr>
         </tbody>
       </table>
+    </section>
+    <section class="settings-card">
+      <h4>Privacy & Data</h4>
+      <p class="s-desc">${escapeHtml(info?.privacy ?? 'All data stored locally. No telemetry.')}</p>
+      <table class="about-table">
+        <tbody>
+          <tr><td>Telemetry</td><td>${escapeHtml(info?.telemetry ?? 'Disabled')}</td></tr>
+          <tr><td>Data Storage</td><td>${escapeHtml(info?.storage ?? 'Local SQLite')}</td></tr>
+          <tr><td>Private Tabs</td><td>WebView2 InPrivate profile (isolated)</td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section class="settings-card">
+      <h4>Platforms & License</h4>
+      <table class="about-table">
+        <tbody>
+          <tr><td>Supported</td><td>${escapeHtml(info?.platforms ?? 'Windows, Linux')}</td></tr>
+          <tr><td>License</td><td>${escapeHtml(info?.license ?? 'MIT')}</td></tr>
+          <tr><td>Repository</td><td><a href="${escapeHtml(info?.repository ?? '#')}" target="_blank" rel="noopener">${escapeHtml(info?.repository ?? 'Open Source')}</a></td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section class="settings-card">
+      <h4>Features</h4>
+      <ul class="about-features">
+        <li>Ad & Tracker Blocking (EasyList, EasyPrivacy, uBlock Origin)</li>
+        <li>Tab Groups & Workspaces</li>
+        <li>Bookmarks, History, Downloads</li>
+        <li>Reading List with Offline Snapshots</li>
+        <li>Reader Mode & Read Aloud</li>
+        <li>Picture-in-Picture</li>
+        <li>Forced Dark Mode</li>
+        <li>Page Translation (LibreTranslate)</li>
+        <li>Form Autofill & Password Generator</li>
+        <li>Encrypted Backup (.gbak)</li>
+        <li>Guest Mode & Private Tabs</li>
+        <li>Command Palette (Ctrl+K)</li>
+      </ul>
+    </section>
+    <section class="settings-card">
+      <h4>Limitations</h4>
+      <ul class="about-limitations">
+        <li>No Chrome extensions (requires Chromium engine)</li>
+        <li>No cloud sync (manual encrypted backup only)</li>
+        <li>No per-tab cookie isolation (regular tabs share profile)</li>
+        <li>No certificate inspection (URL-scheme based security)</li>
+        <li>Network blocking Windows-only (WebView2 hook)</li>
+      </ul>
     </section>`;
 }
 

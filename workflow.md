@@ -1,61 +1,181 @@
 # Development Workflow
 
-## Feature lifecycle
+> Standard procedures for developing Ritam Browser.
 
-```text
-Issue or request
-      |
-      v
-Inspect requirements, current behavior, and engine/platform constraints
-      |
-      v
-Identify UI, IPC, storage, documentation, and test touchpoints
-      |
-      v
-Implement the smallest complete change
-      |
-      v
-Run focused tests and relevant frontend/Rust checks
-      |
-      v
-Review the diff, update docs, and commit
-      |
-      v
-Push the intended branch and verify the remote result
+---
+
+## 1. Feature Development Lifecycle
+
+```
+┌─────────────────┐
+│  Issue/Request  │
+└────────┬────────┘
+         │
+         v
+┌─────────────────────────────┐
+│  Analyze Requirements       │
+│  - Current behavior         │
+│  - Engine constraints       │
+│  - Platform limitations     │
+└────────┬────────────────────┘
+         │
+         v
+┌─────────────────────────────┐
+│  Identify Touchpoints       │
+│  - UI components            │
+│  - IPC commands             │
+│  - Storage/schema           │
+│  - Tests                    │
+│  - Documentation            │
+└────────┬────────────────────┘
+         │
+         v
+┌─────────────────────────────┐
+│  Implement Smallest Complete│
+│  Change                     │
+└────────┬────────────────────┘
+         │
+         v
+┌─────────────────────────────┐
+│  Test & Verify              │
+│  - Focused tests            │
+│  - Frontend/Rust checks     │
+└────────┬────────────────────┘
+         │
+         v
+┌─────────────────────────────┐
+│  Review & Commit            │
+│  - Diff review              │
+│  - Documentation updates    │
+└────────┬────────────────────┘
+         │
+         v
+┌─────────────────────────────┐
+│  Push & Verify Remote       │
+└─────────────────────────────┘
 ```
 
-## Local checks
+---
 
-From the repository root:
+## 2. Local Development Commands
 
-```powershell
+### From Repository Root
+
+```bash
+# Frontend tests
 npm test
+
+# Rust tests
 cargo test --manifest-path src-tauri/Cargo.toml
+
+# Rust compilation check
 cargo check --manifest-path src-tauri/Cargo.toml
+
+# Git lint check
 git diff --check
 ```
 
-Run checks that cover the code changed; the UI preview can be started with
-`npm run dev`, and the native application with `npm run tauri:dev`.
+### Running the Application
 
-## Data flow for a browser feature
+```bash
+# UI preview only (no Rust)
+npm run dev
 
-1. The shell UI handles the interaction in `ui/js/` and updates relevant state.
-2. `ui/js/services/ipc.js` invokes a typed Tauri command in desktop mode.
-3. The command validates inputs, coordinates SQLite or `TabWebviewManager`, and
-   returns a result or explicit error.
-4. The frontend renders the result. The preview implementation uses the
-   fallback service for supported local features.
-5. Focused tests cover the behavior and relevant documentation records
-   support boundaries.
+# Full desktop application
+npm run tauri:dev
 
-## Change and release hygiene
+# Production build
+npm run tauri:build
+```
 
-- Inspect `git status` before staging; preserve unrelated user changes.
-- Stage only intended files, review `git diff --cached`, and avoid committing
-  machine-specific paths, credentials, generated output, or local data.
-- Use a descriptive commit message. Push only the intended branch to the
-  configured repository after local checks and review.
-- Native UI changes that depend on the operating system should be verified in
-  a rebuilt desktop app when possible; a browser preview cannot validate
-  native-window behavior.
+---
+
+## 3. Data Flow for a Browser Feature
+
+### End-to-End Flow
+
+```
+1. User Action
+       │
+       ▼
+2. Shell UI (ui/js/)
+   - Handles user interaction
+   - Updates relevant state
+       │
+       ▼
+3. IPC Layer (ui/js/services/ipc.js)
+   - Invokes typed Tauri command
+   - Falls back to localStorage in preview mode
+       │
+       ▼
+4. Rust Command Handler (src-tauri/src/commands/)
+   - Validates inputs
+   - Coordinates SQLite or TabWebviewManager
+   - Returns result or error
+       │
+       ▼
+5. Frontend Rendering
+   - Updates UI with result
+   - Preview uses fallback service
+       │
+       ▼
+6. Tests
+   - Focused tests for behavior
+   - Documentation for support boundaries
+```
+
+---
+
+## 4. Change & Release Hygiene
+
+### Before Staging
+
+```bash
+# Check what changed
+git status
+
+# Review unstaged changes
+git diff
+
+# Review staged changes
+git diff --cached
+```
+
+### What NOT to Commit
+
+| Item | Reason |
+|------|--------|
+| Machine-specific paths | Breaks cross-machine builds |
+| Credentials/secrets | Security risk |
+| Generated output | Should be rebuilt |
+| Local data files | User-specific |
+| Unrelated changes | Scope creep |
+
+### Commit Guidelines
+
+- Use descriptive commit messages
+- Stage only intended files
+- Push only the intended branch
+- Verify remote result after push
+
+### Native UI Verification
+
+Native window behavior cannot be validated in browser preview. When making OS-native UI changes:
+- Rebuild the desktop app
+- Test in the actual application
+- Verify on target OS
+
+---
+
+## 5. Related Documents
+
+| Document | Description |
+|----------|-------------|
+| [Engineering Process](process.md) | Development principles and guidelines |
+| [Working Guide](working.md) | Setup and environment |
+| [Feature List](feature-list.md) | Feature implementation status |
+| [Backend Architecture](backend.md) | Technical architecture |
+
+---
+
+*Last Updated: November 2026*

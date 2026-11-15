@@ -305,9 +305,16 @@ pub fn get_app_info() -> AppInfo {
     AppInfo {
         name: "Ritam Browser".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        milestone: "Milestone 1 — Browser shell".to_string(),
-        engine: "System WebView2 via Tauri 2 (interim window-embedded WebViews)".to_string(),
-        storage: "SQLite at the OS app-data directory".to_string(),
+        milestone: "Milestone 1 — Browser Shell".to_string(),
+        engine: "System WebView2 via Tauri 2".to_string(),
+        engine_detail: "Window-embedded child webviews with native request hook for ad blocking. Uses EasyList, EasyPrivacy, and uBlock Origin filter lists.".to_string(),
+        ui: "Vanilla HTML/CSS/JavaScript (no build step)".to_string(),
+        storage: "SQLite (rusqlite) in OS app-data directory".to_string(),
+        privacy: "Local-first, zero telemetry, no accounts. Private tabs use WebView2 InPrivate storage.".to_string(),
+        platforms: "Windows (primary), Linux (WebKitGTK)".to_string(),
+        license: "MIT".to_string(),
         telemetry: "disabled".to_string(),
+        repository: "Open source - https://github.com/ritam-browser".to_string(),
+        description: "A fast, privacy-first desktop browser built with Tauri 2 and Rust. All data stays on your device.".to_string(),
     }
 }

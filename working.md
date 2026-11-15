@@ -1,62 +1,143 @@
-# Working on Govind Browser
+# Working on Ritam Browser
 
-## Requirements
+> Setup guide and development commands.
 
-- Node.js 20 or later.
-- Rust stable for the desktop application.
-- WebView2 Runtime on Windows (normally present on Windows 11 and recent
-  Windows 10 installations).
-- Tauri platform prerequisites for the target operating system.
+---
 
-## Run the UI preview
+## 1. Prerequisites
 
-The preview needs Node.js but does not build the Rust application:
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Node.js | 20+ | For frontend and build tools |
+| Rust | stable | For Tauri backend |
+| WebView2 | Evergreen | Pre-installed on Windows 11/10 |
 
-```powershell
+### Linux Prerequisites
+
+```bash
+# Ubuntu/Debian
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+  libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev \
+  build-essential pkg-config libssl-dev patchelf
+```
+
+---
+
+## 2. Quick Start
+
+### Install Dependencies
+
+```bash
+npm install
+```
+
+### Run UI Preview (No Rust Required)
+
+```bash
+# Run tests
 npm test
+
+# Start preview server
 npm run dev
 ```
 
-Open the address printed by `tools/serve.mjs` (currently
-`http://localhost:8081`). The preview uses local storage in place of the Rust
-backend and loads remote sites in an iframe; some sites prohibit framing.
+The preview server runs at `http://localhost:8081`.
 
-## Run the desktop app
+> **Note:** Preview mode uses localStorage instead of the Rust backend. Remote sites load in an iframe; some sites prohibit framing.
 
-```powershell
-npm install
+### Run Desktop Application
+
+```bash
 npm run tauri:dev
 ```
 
-Build a distributable installer with:
+### Build for Production
 
-```powershell
+```bash
 npm run tauri:build
 ```
 
-## Rust checks
+Output installers are located in:
+- Windows: `src-tauri/target/release/bundle/{nsis,msi}/`
+- Linux: `src-tauri/target/release/bundle/{deb,appimage}/`
 
-Run these from the repository root:
+---
 
-```powershell
+## 3. Rust Development
+
+### From Repository Root
+
+```bash
+# Run Rust tests
 cargo test --manifest-path src-tauri/Cargo.toml
+
+# Check compilation
 cargo check --manifest-path src-tauri/Cargo.toml
+
+# Run tests from src-tauri directory
+cd src-tauri
+cargo test
 ```
 
-The frontend test suite is `node --test tests/*.test.mjs` (also available as
-`npm test`). Tests use Node's built-in test runner.
+### Frontend Tests
 
-## Repository map
+```bash
+# All tests
+npm test
 
-- `ui/index.html`, `ui/styles/`, `ui/js/`: browser shell and UI.
-- `ui/js/services/ipc.js`: frontend-to-Tauri command boundary and preview
-  fallback selection.
-- `src-tauri/src/commands/`: Rust IPC command handlers.
-- `src-tauri/src/webview.rs`: native page webview lifecycle and engine adapter.
-- `src-tauri/src/db.rs`, `src-tauri/migrations/`: local SQLite setup/schema.
-- `tests/`: frontend and fallback behavior tests.
-- `tools/serve.mjs`: dependency-light preview server.
-- `docs/`: product and architecture decisions.
+# Or use Node directly
+node --test tests/*.test.mjs
+```
 
-For feature status, see `feature-list.md`. For implementation conventions and
-the delivery loop, see `process.md` and `workflow.md`.
+---
+
+## 4. Project Structure Reference
+
+| Path | Description |
+|------|-------------|
+| `ui/index.html` | Main browser shell |
+| `ui/styles/` | CSS files (tokens.css, app.css) |
+| `ui/js/` | JavaScript modules |
+| `ui/js/services/ipc.js` | Tauri command boundary + preview fallback |
+| `src-tauri/src/commands/` | Rust IPC command handlers |
+| `src-tauri/src/webview.rs` | Native webview lifecycle |
+| `src-tauri/src/db.rs` | SQLite setup and schema |
+| `src-tauri/migrations/` | Database migrations |
+| `tests/` | Frontend and fallback tests |
+| `tools/serve.mjs` | Lightweight preview server |
+| `docs/` | Architecture decisions and PRD |
+
+---
+
+## 5. Additional Resources
+
+| Document | Description |
+|----------|-------------|
+| [Feature List](feature-list.md) | Feature implementation status |
+| [Backend Architecture](backend.md) | Technical architecture |
+| [Engineering Process](process.md) | Development principles |
+| [Development Workflow](workflow.md) | Day-to-day procedures |
+
+---
+
+## 6. Common Issues
+
+### WebView2 Not Found
+
+If you see a WebView2 error on Windows, install the [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+
+### Port Already in Use
+
+If port 8081 is in use, stop the existing server or use a different port by modifying `tools/serve.mjs`.
+
+### Rust Compilation Errors
+
+Ensure you're using stable Rust:
+```bash
+rustup default stable
+rustup update
+```
+
+---
+
+*Last Updated: November 2026*

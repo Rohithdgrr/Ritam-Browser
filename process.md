@@ -1,52 +1,120 @@
 # Engineering Process
 
-## Principles
+> Development guidelines and principles for Ritam Browser.
 
-- Keep changes small, scoped to the requested behavior, and consistent with
-  neighboring code.
-- Reuse existing IPC commands, UI components, and storage patterns before
-  introducing new abstractions or dependencies.
-- Keep page-engine operations behind the `TabWebviewManager` boundary in
-  `src-tauri/src/webview.rs`.
-- Treat remote page content as untrusted. Do not expose application commands
-  or privileged capabilities to remote origins.
-- Be explicit about unsupported platform or webview behavior; do not present
-  a URL-scheme heuristic as certificate verification or estimates as measured
-  resource usage.
-- Keep user data local unless a feature explicitly sends data to a configured
-  service after the user initiates the action.
+---
 
-## Making a change
+## 1. Core Principles
 
-1. Read the relevant UI, IPC, Rust command, persistence, and test code before
-   editing.
-2. Trace the behavior end-to-end: user action, shell state, IPC, native
-   operation, persisted data, and visible result.
-3. Make the smallest complete change, including directly affected callers and
-   focused regression tests for non-trivial behavior.
-4. Run the smallest relevant test set, then run `npm test` and the relevant
-   Rust checks when the change crosses those layers.
-5. Review the diff for scope, formatting, accidental data/config changes, and
-   consistency between user-facing documentation and actual behavior.
+| Principle | Description |
+|-----------|-------------|
+| **Small Changes** | Keep changes scoped and focused on requested behavior |
+| **Code Reuse** | Use existing IPC commands, UI components, and patterns before adding new ones |
+| **Engine Boundary** | Keep page-engine operations behind `TabWebviewManager` in `src-tauri/src/webview.rs` |
+| **Zero Trust** | Treat remote page content as untrusted; never expose app commands to remote origins |
+| **Be Explicit** | Document unsupported behavior clearly; don't misrepresent URL schemes as certificate validation |
+| **Local-First** | Keep user data local; only send data to external services when user explicitly initiates action |
 
-## UI changes
+---
 
-- Preserve keyboard operation, clear focus indicators, useful accessible
-  names for icon-only controls, and touch-friendly targets.
-- Check the layout at narrow and wide viewport sizes when changing responsive
-  UI.
-- Native child webviews are separate native surfaces; shell DOM stacking
-  cannot cover them. Use a native popup or another native surface when an
-  overlay must appear above a page.
+## 2. Making a Change
 
-## Persistence and privacy
+### Step-by-Step Process
 
-- Keep durable browser data in SQLite for the desktop app and maintain the
-  localStorage fallback where the feature is expected to work in preview.
-- Validate values at Rust command boundaries, especially URLs, settings, and
-  imported data.
-- Private tabs must not enter persistent tab/session records or application
-  history/download records. Do not imply this hides activity from websites,
-  networks, or other system-level observers.
-- Update `feature-list.md` and `README.md` when a change materially changes
-  supported features or limitations.
+1. **Understand the Code**
+   - read_file relevant UI, IPC, Rust command, persistence, and test code
+   - Trace behavior end-to-end: user action → shell state → IPC → native operation → persisted data → visible result
+
+2. **Implement the Change**
+   - Make the smallest complete change
+   - Include directly affected callers
+   - Add focused regression tests for non-trivial behavior
+
+3. **Verify and Review**
+   - Run smallest relevant test set
+   - Run `npm test` and Rust checks when crossing those layers
+   - Review diff for scope, formatting, and accidental changes
+
+4. **Document**
+   - Update `feature-list.md` when support boundaries change
+   - Keep `README.md` in sync with actual behavior
+
+---
+
+## 3. UI Development Guidelines
+
+### Accessibility
+- Preserve keyboard operation
+- Use clear focus indicators
+- Provide accessible names for icon-only controls
+- Ensure touch-friendly target sizes
+
+### Responsive Design
+- Check layout at narrow (≤520px) and wide (>700px) viewport sizes
+- Test sidebar behavior (drawer mode at ≤700px)
+
+### Native Integration
+- Native child webviews are separate native surfaces
+- Shell DOM stacking cannot cover them
+- Use native popup or surface when overlay must appear above a page
+
+---
+
+## 4. Persistence & Privacy
+
+### Data Storage
+| Store | Use Case |
+|-------|----------|
+| SQLite | Desktop app persistent data |
+| localStorage | Preview mode fallback |
+
+### Validation Requirements
+- Validate all values at Rust command boundaries
+- Especially: URLs, settings, imported data
+
+### Privacy Rules
+- Private tabs must NOT enter persistent tab/session records
+- Private tabs must NOT enter application history/download records
+- Do not imply private tabs hide activity from websites, networks, or OS-level observers
+
+---
+
+## 5. Quality Standards
+
+### Before Committing
+
+```bash
+# Frontend tests
+npm test
+
+# Rust tests
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Rust check
+cargo check --manifest-path src-tauri/Cargo.toml
+
+# Git check
+git diff --check
+```
+
+### What to Verify
+- [ ] Tests pass
+- [ ] Code compiles without warnings
+- [ ] No unintended file changes
+- [ ] Documentation reflects actual behavior
+- [ ] No credentials or secrets committed
+
+---
+
+## 6. Related Documents
+
+| Document | Description |
+|----------|-------------|
+| [Workflow](workflow.md) | Day-to-day development procedures |
+| [Working Guide](working.md) | Setup and running the project |
+| [Feature List](feature-list.md) | Feature implementation status |
+| [Backend Architecture](backend.md) | Technical architecture |
+
+---
+
+*Last Updated: November 2026*
