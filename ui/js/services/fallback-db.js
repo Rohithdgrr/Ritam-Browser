@@ -101,6 +101,7 @@ export function createFallbackDb(storage) {
       ...ws,
       profile_id: ws.profile_id ?? db.settings.active_profile_id,
     }));
+    db.autofill = db.autofill ?? {};
     return db;
   }
 
@@ -137,6 +138,7 @@ export function createFallbackDb(storage) {
       reading_list: [],
       settings: { ...DEFAULT_SETTINGS, active_workspace_id: wsId, active_profile_id: profileId },
       site_permissions: [],
+      autofill: {},
     };
     return save(db);
   }
@@ -287,8 +289,9 @@ export function createFallbackDb(storage) {
     // ── Profiles ────────────────────────────────────────────
     async list_profiles() {
       const db = load();
+      const ordered = [...db.profiles].sort((a, b) => a.sort_order - b.sort_order);
       return {
-        profiles: [...db.profiles].sort((a, b) => a.sort_order - b.sort_order),
+        profiles: ordered.map((profile, index) => ({ ...profile, is_default: index === 0 ? 1 : 0 })),
         active_profile_id: activeProfile(db),
       };
     },
@@ -337,12 +340,89 @@ export function createFallbackDb(storage) {
       db.notes = db.notes.filter((n) => !workspaceIds.includes(n.workspace_id));
       db.workspaces = db.workspaces.filter((w) => w.profile_id !== profile_id);
       db.profiles = db.profiles.filter((p) => p.id !== profile_id);
+      delete db.autofill[profile_id];
       if (db.settings.active_profile_id === profile_id) {
         db.settings.active_profile_id = db.profiles[0].id;
         db.settings.active_workspace_id = db.workspaces.find((w) => w.profile_id === db.profiles[0].id)?.id ?? null;
       }
       save(db);
       return { deleted_id: profile_id };
+    },
+    async rename_profile({ profile_id, name } = {}) {
+      const clean = String(name ?? '').trim().slice(0, 80);
+      if (!clean) throw new Error('profile name required');
+      const db = load();
+      const profile = db.profiles.find((p) => p.id === profile_id);
+      if (!profile) throw new Error('profile not found');
+      profile.name = clean;
+      save(db);
+      return profile;
+    },
+    async set_default_profile({ profile_id } = {}) {
+      const db = load();
+      const ordered = [...db.profiles].sort((a, b) => a.sort_order - b.sort_order);
+      const profile = ordered.find((p) => p.id === profile_id);
+      if (!profile) throw new Error('profile not found');
+      db.profiles = [profile, ...ordered.filter((p) => p.id !== profile_id)]
+        .map((p, index) => ({ ...p, sort_order: index }));
+      save(db);
+      return { profiles: db.profiles, active_profile_id: activeProfile(db) };
+    },
+    // ── Auto-fill (preview: per profile, stored with the rest of the fake db) ──
+    async list_autofill() {
+      const db = load();
+      return db.autofill[activeProfile(db)] ?? { identities: [], addresses: [] };
+    },
+    async upsert_identity({ identity } = {}) {
+      const db = load();
+      const profileId = activeProfile(db);
+      const data = db.autofill[profileId] ?? { identities: [], addresses: [] };
+      const entry = { ...identity, id: identity?.id || id() };
+      if (!entry.full_name && !entry.email && !entry.phone) throw new Error('identity needs a field');
+      data.identities = [...data.identities.filter((item) => item.id !== entry.id), entry];
+      db.autofill[profileId] = data;
+      save(db);
+      return entry;
+    },
+    async upsert_address({ address } = {}) {
+      const db = load();
+      const profileId = activeProfile(db);
+      const data = db.autofill[profileId] ?? { identities: [], addresses: [] };
+      const entry = { ...address, id: address?.id || id() };
+      if (!entry.line1 && !entry.city) throw new Error('address needs a field');
+      data.addresses = [...data.addresses.filter((item) => item.id !== entry.id), entry];
+      db.autofill[profileId] = data;
+      save(db);
+      return entry;
+    },
+    async delete_identity({ id: entryId } = {}) {
+      const db = load();
+      const profileId = activeProfile(db);
+      const data = db.autofill[profileId] ?? { identities: [], addresses: [] };
+      const before = data.identities.length;
+      data.identities = data.identities.filter((entry) => entry.id !== entryId);
+      db.autofill[profileId] = data;
+      save(db);
+      return data.identities.length !== before;
+    },
+    async delete_address({ id: entryId } = {}) {
+      const db = load();
+      const profileId = activeProfile(db);
+      const data = db.autofill[profileId] ?? { identities: [], addresses: [] };
+      const before = data.addresses.length;
+      data.addresses = data.addresses.filter((entry) => entry.id !== entryId);
+      db.autofill[profileId] = data;
+      save(db);
+      return data.addresses.length !== before;
+    },
+    async request_autofill() {
+      return { filled: false, reason: 'Auto-fill is available in the installed app.' };
+    },
+    async detect_installed_browsers() {
+      return [];
+    },
+    async import_from_browser() {
+      throw new Error('Importing from other browsers is available in the installed app.');
     },
     async set_active_profile({ profile_id } = {}) {
       const db = load();

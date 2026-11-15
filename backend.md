@@ -59,7 +59,9 @@ The Ritam Browser backend is a Rust library built on Tauri 2. It provides a secu
 
 | File | Responsibility |
 |------|----------------|
-| `src-tauri/src/commands/profiles.rs` | Local profiles (name, email label, colour), default-profile bootstrap, workspace scoping for per-profile tab sessions |
+| `src-tauri/src/commands/profiles.rs` | Local profiles (name, email label, colour, avatar), default-profile bootstrap and reordering, `profile_dir()` (0700 on Unix), delete that removes every scoped row plus the engine folder in one transaction |
+| `src-tauri/src/commands/autofill.rs` | Per-profile identities and addresses in `{profile_dir}/autofill.json` (atomic write, 0600 on Unix, not encrypted); `request_autofill` pushes them into one tab tagged with the origin Rust reads from that webview |
+| `src-tauri/src/commands/import.rs` | Detects installed Chromium-family, Firefox and (macOS) Safari profiles; imports bookmarks and history after copying `Bookmarks` / `History` / `places.sqlite` to a temp dir and opening it `SQLITE_OPEN_READ_ONLY`; passwords are reported as skipped |
 
 ### 2.5 Ad Blocking
 
@@ -93,6 +95,18 @@ The Ritam Browser backend is a Rust library built on Tauri 2. It provides a secu
 | Windows | `%APPDATA%/com.govind.browser/govind.db` |
 | Linux | `~/.local/share/com.govind.browser/govind.db` |
 
+Per-profile files live beside the database:
+
+| Path | Contents |
+|------|----------|
+| `profiles/{id}/autofill.json` | identities and addresses, 0600 on Unix, plain JSON |
+| `profiles/{id}/webview/` | that profile's engine (WebView2) data directory used by tab webviews |
+
+The database is upgraded behind `PRAGMA user_version`: version 2 adds `profile_id` to bookmarks,
+history, reading list, site permissions, settings, downloads and notes, writes the pre-migration
+copy to `govind.db.bak-0002`, and moves `active_profile_id` / `active_workspace_id` into
+`shell_state` (the only keys that stay global).
+
 ### 3.2 Privacy Principles
 
 - **No Telemetry:** The application sends no usage data to external servers
@@ -119,9 +133,11 @@ Private tabs utilize WebView2 InPrivate profile with the following characteristi
 |--------|----------|
 | Profile Storage | Local records in `profiles` table |
 | Workspace Link | `workspaces.profile_id` foreign key |
-| Active Profile | `settings.active_profile_id` |
+| Active Profile | `shell_state.active_profile_id` (a shell pointer, not profile data) |
+| Default Profile | First by `sort_order`; reported as `is_default` by `list_profiles` |
 | Email Column | Display label only; no network calls |
-| Data Sharing | Bookmarks, history, downloads, reading list are global across profiles |
+| Data Sharing | Nothing is shared between profiles: bookmarks, history, reading list, notes, downloads, site permissions, settings and auto-fill are all scoped by `profile_id`, and engine site data sits in `profiles/{id}/webview` |
+| Delete | Refused for the active profile; other profiles delete their rows and folder in one transaction |
 
 ### 3.5 Session State Persistence
 

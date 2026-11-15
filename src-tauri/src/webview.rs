@@ -339,32 +339,24 @@ const PAGE_FEATURES_JS: &str = r#"
     };
 
     // ── Form autofill ──────────────────────────────────────────────────
-    // Profiles arrive as a JSON array (stored in settings, entered by the
-    // user). On focus of a recognisable field we offer the saved profiles in
-    // a small dropdown; choosing one fills every detectable field.
-    var autofillProfiles = [];
+    // Nothing is injected when a page loads: the user asks the shell to fill
+    // this tab (Ctrl+Shift+L) and only then is the profile's data evaluated
+    // into the document, tagged with the origin Rust verified. A payload whose
+    // origin does not match this document is discarded, so a value can never
+    // be filled on a site other than the one the user acted on.
+    var autofillData = { identities: [], addresses: [] };
+    var autofillOrigin = null;
     var FIELD_KEYS = [
-      ['cc-number', /cc-?number|card.?num|cardnumber/i],
-      ['cc-csc', /cc-?csc|cvc|cvv|security.?code/i],
-      ['cc-expiry', /cc-?exp|expiry|expiration/i],
-      ['card_name', /cc-?name/i],
       ['email', /e-?mail/i],
       ['phone', /tel|phone|mobile/i],
       ['postal_code', /postal|zip|postcode/i],
       ['country', /country/i],
-      ['address_line2', /address.?line.?2|apt|suite/i],
+      ['address2', /address.?line.?2|apt|suite/i],
       ['city', /city|address.?level.?2|locality/i],
       ['region', /state|province|region|address.?level.?1/i],
-      ['address_line1', /street|address.?line.?1|address1/i],
+      ['address1', /street|address.?line.?1|address1/i],
       ['full_name', /name|fullname/i],
     ];
-    var PROFILE_LABELS = {
-      full_name: 'Full name', email: 'Email', phone: 'Phone',
-      address_line1: 'Address line 1', address_line2: 'Address line 2',
-      city: 'City', region: 'State / region', postal_code: 'Postal code',
-      country: 'Country', card_name: 'Name on card', card_number: 'Card number',
-      card_expiry: 'Card expiry', card_csc: 'Security code',
-    };
     function fieldKey(el) {
       var hay = [el.getAttribute && el.getAttribute('autocomplete'), el.name, el.id,
         el.getAttribute && el.getAttribute('placeholder'), el.getAttribute && el.getAttribute('aria-label')]
@@ -374,8 +366,17 @@ const PAGE_FEATURES_JS: &str = r#"
       }
       return null;
     }
-    function profileLabel(p) {
-      return p.full_name || p.email || p.card_name || 'Saved profile';
+    function identityLabel(p) {
+      return p.label || p.full_name || p.email || 'Saved identity';
+    }
+    function addressLabel(a) {
+      return a.label || [a.line1, a.city].filter(Boolean).join(', ') || 'Saved address';
+    }
+    function flatAddress(a) {
+      return {
+        address1: a.line1, address2: a.line2, city: a.city,
+        region: a.region, postal_code: a.postal_code, country: a.country,
+      };
     }
     function fillField(el, value) {
       if (value === undefined || value === null || value === '') return;
@@ -432,7 +433,8 @@ const PAGE_FEATURES_JS: &str = r#"
     }
     function showAutofill(target) {
       hideAutofill();
-      if (!autofillProfiles.length || !target || !target.isConnected) return;
+      if ((!autofillData.identities.length && !autofillData.addresses.length) || !target || !target.isConnected) return;
+      if (autofillOrigin !== location.origin) return;
       var scope = target.form || d;
       var rect = target.getBoundingClientRect();
       if (!rect.width && !rect.height) return;
@@ -441,26 +443,35 @@ const PAGE_FEATURES_JS: &str = r#"
       autofillBox.style.cssText = 'position:fixed;z-index:2147483647;min-width:200px;max-width:320px;' +
         'background:#fff;color:#1c1c1e;border:1px solid #d0d0d5;border-radius:8px;' +
         'box-shadow:0 6px 24px rgba(0,0,0,.22);font:13px/1.4 system-ui,sans-serif;overflow:hidden';
-      autofillProfiles.forEach(function (profile, idx) {
+      var rows = autofillData.identities.map(function (identity) {
+        return { label: identityLabel(identity), values: identity };
+      }).concat(autofillData.addresses.map(function (address) {
+        return { label: addressLabel(address), values: flatAddress(address) };
+      }));
+      rows.forEach(function (rowData) {
         var row = d.createElement('button');
         row.type = 'button';
         row.setAttribute('role', 'option');
-        row.textContent = profileLabel(profile);
+        row.textContent = rowData.label;
         row.style.cssText = 'display:block;width:100%;text-align:left;padding:8px 12px;border:0;' +
           'background:transparent;cursor:pointer;font:inherit;color:inherit';
         row.addEventListener('mouseenter', function () { row.style.background = '#f0f0f4'; });
         row.addEventListener('mouseleave', function () { row.style.background = 'transparent'; });
         row.addEventListener('mousedown', function (e) { e.preventDefault(); });
         row.addEventListener('click', function () {
+          if (autofillOrigin !== location.origin) { hideAutofill(); return; }
+          var values = rowData.values;
           scope.querySelectorAll('input, textarea, select').forEach(function (el) {
             var key = fieldKey(el);
-            if (key && profile[key]) fillField(el, profile[key]);
+            if (key && values[key]) fillField(el, values[key]);
           });
           // Also fill the focused field directly if it had no form match.
           var focusedKey = fieldKey(d.activeElement);
-          if (focusedKey && profile[focusedKey] && !scope.contains(d.activeElement)) {
-            fillField(d.activeElement, profile[focusedKey]);
+          if (focusedKey && values[focusedKey] && !scope.contains(d.activeElement)) {
+            fillField(d.activeElement, values[focusedKey]);
           }
+          // Values do not stay in the page after the user used them.
+          autofillData = { identities: [], addresses: [] };
           hideAutofill();
         });
         autofillBox.appendChild(row);
@@ -492,12 +503,21 @@ const PAGE_FEATURES_JS: &str = r#"
     d.addEventListener('keydown', function (event) {
       if (event.key === 'Escape') { hideAutofill(); hidePasswordGenerator(); }
     }, true);
-    window.__govindSetAutofill = function (json) {
-      try {
-        var parsed = JSON.parse(json || '[]');
-        autofillProfiles = Array.isArray(parsed) ? parsed.slice(0, 50) : [];
-      } catch (_) { autofillProfiles = []; }
+    window.__govindSetAutofill = function (payload) {
+      autofillData = { identities: [], addresses: [] };
+      autofillOrigin = null;
       hideAutofill();
+      if (!payload || payload.origin !== location.origin) return false;
+      autofillData = {
+        identities: Array.isArray(payload.identities) ? payload.identities.slice(0, 50) : [],
+        addresses: Array.isArray(payload.addresses) ? payload.addresses.slice(0, 50) : [],
+      };
+      autofillOrigin = payload.origin;
+      var active = d.activeElement;
+      if (active && active.matches && active.matches('input, textarea, select') && fieldKey(active)) {
+        showAutofill(active);
+      }
+      return true;
     };
 
     window.__govindReadAloud = function () {
@@ -851,7 +871,6 @@ pub struct TabWebviewManager {
   spellcheck: Mutex<bool>,
   do_not_track: Mutex<bool>,
   cosmetic_css: Mutex<String>,
-  autofill_profiles: Mutex<String>,
   /// URLs the user explicitly chose to visit despite a safe-browsing hit
   /// (session-only bypass).
   unsafe_allowed: Mutex<HashSet<String>>,
@@ -869,7 +888,6 @@ impl TabWebviewManager {
       spellcheck: Mutex::new(true),
       do_not_track: Mutex::new(false),
       cosmetic_css: Mutex::new(String::new()),
-      autofill_profiles: Mutex::new("[]".to_string()),
       unsafe_allowed: Mutex::new(HashSet::new()),
       layout: Mutex::new(LayoutState::default()),
     }
@@ -906,10 +924,6 @@ impl TabWebviewManager {
 
   fn cosmetic_css(&self) -> String {
     self.cosmetic_css.lock().unwrap_or_else(|e| e.into_inner()).clone()
-  }
-
-  fn autofill_profiles(&self) -> String {
-    self.autofill_profiles.lock().unwrap_or_else(|e| e.into_inner()).clone()
   }
 
   #[cfg(desktop)]
@@ -967,15 +981,12 @@ impl TabWebviewManager {
     let spell = self.spellcheck_enabled();
     let dnt = self.dnt_enabled();
     let css = self.cosmetic_css();
-    let profiles = self.autofill_profiles();
-    let profiles_json = serde_json::to_string(&profiles).unwrap_or_else(|_| "\"[]\"".into());
     let views: Vec<Webview> = self.webviews().values().cloned().collect();
     for webview in views {
       let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
       let _ = webview.eval(&format!("window.__govindSetSpellcheck && window.__govindSetSpellcheck({spell});"));
       let _ = webview.eval(&format!("window.__govindSetDnt && window.__govindSetDnt({dnt});"));
       let _ = webview.eval(&format!("window.__govindSetCosmetic && window.__govindSetCosmetic({css_json});"));
-      let _ = webview.eval(&format!("window.__govindSetAutofill && window.__govindSetAutofill({profiles_json});"));
     }
   }
 
@@ -1099,6 +1110,25 @@ impl TabWebviewManager {
     let popup_id = tab_id.to_string();
     let is_private = self.is_private(tab_id);
 
+    // Every profile browses in its own WebView2 data directory, so cookies,
+    // localStorage and cache never cross profiles. Private tabs keep using
+    // incognito on top of that.
+    let data_dir = {
+      let profile_id = app
+        .try_state::<DbState>()
+        .and_then(|db| crate::db::active_profile_id(&db.conn()))
+        .unwrap_or_else(|| "default".to_string());
+      let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::InvalidInput(format!("could not resolve app data dir: {e}")))?
+        .join("profiles")
+        .join(profile_id)
+        .join("webview");
+      std::fs::create_dir_all(&dir)?;
+      dir
+    };
+
     let nav_handle = app.clone();
     let title_handle = app.clone();
     let load_handle = app.clone();
@@ -1118,6 +1148,7 @@ impl TabWebviewManager {
 
     let builder = tauri::webview::WebviewBuilder::new(format!("tab-{tab_id}"), WebviewUrl::External(initial_url))
       .incognito(self.is_private(tab_id))
+      .data_directory(data_dir)
       .initialization_script(initial_script)
       .on_navigation(move |url| {
         // Only real web pages may be loaded — no javascript:, file:, data:.
@@ -1212,7 +1243,6 @@ impl TabWebviewManager {
           let spell = mgr.spellcheck_enabled();
           let dnt = mgr.dnt_enabled();
           let css = mgr.cosmetic_css();
-          let profiles = mgr.autofill_profiles();
           let probe = webview.clone();
           std::thread::spawn(move || {
             let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
@@ -1223,8 +1253,6 @@ impl TabWebviewManager {
             let _ = probe.eval(&format!("window.__govindForceDark && window.__govindForceDark({force_dark});"));
             let _ = probe.eval(&format!("window.__govindSetSpellcheck && window.__govindSetSpellcheck({spell});"));
             let _ = probe.eval(&format!("window.__govindSetDnt && window.__govindSetDnt({dnt});"));
-            let profiles_json = serde_json::to_string(&profiles).unwrap_or_else(|_| "\"[]\"".into());
-            let _ = probe.eval(&format!("window.__govindSetAutofill && window.__govindSetAutofill({profiles_json});"));
           });
         }
       })
@@ -1431,7 +1459,6 @@ impl TabWebviewManager {
         let spell = mgr.spellcheck_enabled();
         let dnt = mgr.dnt_enabled();
         let css = mgr.cosmetic_css();
-        let profiles = mgr.autofill_profiles();
         let probe = window.clone();
         std::thread::spawn(move || {
           let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
@@ -1442,8 +1469,6 @@ impl TabWebviewManager {
           let _ = probe.eval(&format!("window.__govindForceDark && window.__govindForceDark({force_dark});"));
           let _ = probe.eval(&format!("window.__govindSetSpellcheck && window.__govindSetSpellcheck({spell});"));
           let _ = probe.eval(&format!("window.__govindSetDnt && window.__govindSetDnt({dnt});"));
-          let profiles_json = serde_json::to_string(&profiles).unwrap_or_else(|_| "\"[]\"".into());
-          let _ = probe.eval(&format!("window.__govindSetAutofill && window.__govindSetAutofill({profiles_json});"));
         });
       }
     })
@@ -1684,9 +1709,35 @@ impl TabWebviewManager {
   }
 
   /// JSON array of autofill profiles, stored verbatim (validated upstream).
-  pub fn set_autofill_profiles(&self, json: String) {
-    *self.autofill_profiles.lock().unwrap_or_else(|e| e.into_inner()) = json;
-    self.push_page_features();
+  /// Push the active profile's auto-fill entries into one tab, only after the
+  /// user asked for it. Returns the origin Rust verified for that tab; the
+  /// in-page script discards the payload unless `location.origin` matches.
+  pub fn push_autofill(
+    &self,
+    tab_id: &str,
+    payload: &serde_json::Value,
+  ) -> Result<String, AppError> {
+    let webview = self
+      .webviews()
+      .get(tab_id)
+      .cloned()
+      .ok_or_else(|| AppError::NotFound("tab is not open".into()))?;
+    let url = webview.url().map_err(|e| AppError::Window(e.to_string()))?;
+    if !matches!(url.scheme(), "http" | "https") {
+      return Err(AppError::InvalidInput(
+        "autofill is only available on http(s) pages".into(),
+      ));
+    }
+    let origin = url.origin().ascii_serialization();
+    let mut payload = payload.clone();
+    payload["origin"] = serde_json::Value::String(origin.clone());
+    let json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".into());
+    webview
+      .eval(&format!(
+        "window.__govindSetAutofill && window.__govindSetAutofill({json});"
+      ))
+      .map_err(|e| AppError::Window(e.to_string()))?;
+    Ok(origin)
   }
 
   /// Extract the page's visible text for an offline reading-list snapshot.
@@ -1856,10 +1907,7 @@ fn unsafe_reason(app: &AppHandle, url: &Url) -> Option<String> {
     return None;
   };
   let conn = db.conn();
-  let setting = |key: &str| -> String {
-    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
-      .unwrap_or_default()
-  };
+  let setting = |key: &str| -> String { crate::db::setting(&conn, key).unwrap_or_default() };
   if setting("safe_browsing") != "true" {
     return None;
   }

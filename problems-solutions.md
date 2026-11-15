@@ -52,6 +52,31 @@
 |---------|----------|------------|
 | Secure URL does not prove certificate validity | Label security state as derived from URL scheme only | Issuer, certificate chain, TLS details not inspected |
 
+### 2.3 Per-Profile Data
+
+| Problem | Solution | Limitation |
+|---------|----------|------------|
+| Bookmarks, history and settings were global while profiles pretended to be separate | Migrate to `PRAGMA user_version = 2`: `profile_id` on every table, active profile in `shell_state`, `.bak-0002` copy kept | Existing rows all become the active profile's; there is no undo beyond the backup copy |
+| Profiles shared one cookie/site-data jar | Give tab webviews a per-profile `data_directory` under `profiles/{id}/webview` | macOS WebView2 equivalent needs a data-store identifier and is not wired |
+| Deleting a profile could leave orphan rows | Delete refuses the active profile and removes every scoped row plus the folder in one transaction | Unreferenced engine folders from failed deletes are not swept |
+
+### 2.4 Auto-fill Trust Boundary
+
+| Problem | Solution | Limitation |
+|---------|----------|------------|
+| A page could call an app command to read saved data | No page→Rust command is exposed; the shell pushes data on Ctrl+Shift+L only | A page cannot trigger auto-fill itself |
+| Values could be filled on the wrong site | Rust reads the tab's real URL, tags the payload with its origin, and the injected script rejects any other origin and clears itself after one fill | The check is against the tab URL, not the form's `action`; cross-origin form posts are the site's business |
+| Saved data is not encrypted | `autofill.json` is 0600 on Unix and the UI says it is unencrypted | Full-disk encryption is the user's job; password storage was skipped rather than half-built |
+
+### 2.5 Importing From Another Browser
+
+| Problem | Solution | Limitation |
+|---------|----------|------------|
+| Other browsers hold `History` / `places.sqlite` open (WAL locks) | Copy the file and its `-wal` / `-shm` companions to a temp dir, open read-only, delete the copy | Very large profiles take a moment to copy |
+| Arbitrary paths could exfiltrate or clobber files | Only paths returned by `detect_installed_browsers` are accepted; writes go to the active profile only | A profile created after detection needs a re-scan |
+| Passwords cannot be read (DPAPI / Keychain / NSS) | Report passwords as skipped with the reason in the UI and in the report | Password import would require reimplementing each OS crypto store |
+| A source can be partly malformed | Each category reports imported/skipped counts and warnings instead of failing the whole import | No per-item log of skipped URLs |
+
 ---
 
 ## 3. Engine Limitations
@@ -92,7 +117,7 @@
 | Category | Issue Count | Primary Solution |
 |----------|-------------|------------------|
 | Architecture | 5 | Child webviews, async operations, native menus |
-| Privacy/Data | 2 | InPrivate storage, URL-scheme labels |
+| Privacy/Data | 6 | InPrivate storage, URL-scheme labels, profile-scoped schema, origin-gated auto-fill, read-only imports |
 | Engine | 3 | Observable state, configurable services, CSS fallbacks |
 | Development | 1 | localStorage fallback |
 

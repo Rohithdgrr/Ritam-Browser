@@ -66,7 +66,6 @@ export const setNetworkBlocking = (enabled) => invoke('set_network_blocking', { 
 export const setNetworkBlockingAllowlist = (allowlist) =>
   invoke('set_network_blocking_allowlist', { allowlist });
 export const getNetworkBlockerStatus = () => invoke('get_network_blocker_status');
-export const setAutofillProfiles = (profilesJson) => invoke('set_autofill_profiles', { profilesJson });
 export const requestPageSnapshot = (tabId, requestId) =>
   invoke('request_page_snapshot', { tabId, requestId });
 export const clearSiteData = (tabId) => invoke('clear_site_data', { tabId });
@@ -102,10 +101,25 @@ export const closeOtherTabs = (tabId, scope) => invoke('close_other_tabs', { tab
 
 // ── Profiles (local identities; no account sign-in) ──────────────────
 export const listProfiles = () => invoke('list_profiles');
-export const createProfile = (name, email, color) => invoke('create_profile', { name, email, color });
+export const createProfile = (name, email, color, avatar) => invoke('create_profile', { name, email, color, avatar });
 export const updateProfile = (profileId, meta = {}) => invoke('update_profile', { profileId, ...meta });
+export const renameProfile = (profileId, name) => invoke('rename_profile', { profileId, name });
+export const setDefaultProfile = (profileId) => invoke('set_default_profile', { profileId });
 export const deleteProfile = (profileId) => invoke('delete_profile', { profileId });
 export const setActiveProfile = (profileId) => invoke('set_active_profile', { profileId });
+
+// ── Auto-fill (per profile, pushed only on request) ───────────────────
+export const listAutofill = () => invoke('list_autofill');
+export const upsertIdentity = (identity) => invoke('upsert_identity', { identity });
+export const upsertAddress = (address) => invoke('upsert_address', { address });
+export const deleteIdentity = (id) => invoke('delete_identity', { id });
+export const deleteAddress = (id) => invoke('delete_address', { id });
+export const requestAutofill = (tabId) => invoke('request_autofill', { tabId });
+
+// ── Import from another browser ──────────────────────────────────────
+export const detectInstalledBrowsers = () => invoke('detect_installed_browsers');
+export const importFromBrowser = ({ browserId, profilePath, options } = {}) =>
+  invoke('import_from_browser', { browserId, profilePath, options });
 
 // ── Workspaces ────────────────────────────────────────────────────────
 export const createWorkspace = (name) => invoke('create_workspace', { name });

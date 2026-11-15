@@ -1,6 +1,7 @@
 //! Settings, privacy (clear browsing data / site permissions) and app info.
 
-use crate::db::{now_ms, DbState};
+use crate::commands::profiles::resolve_active_profile;
+use crate::db::{now_ms, DbState, SHELL_KEYS};
 use crate::error::AppError;
 use crate::models::{AppInfo, ClearDataResult, SitePermission};
 use rusqlite::params;
@@ -24,7 +25,6 @@ const KNOWN_KEYS: &[&str] = &[
     "safebrowsing_blocklist",
     "content_blocking",
     "cosmetic_filters",
-    "autofill_profiles",
     "recently_closed",
     "muted_sites",
 ];
@@ -47,7 +47,6 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("safebrowsing_blocklist", ""),
     ("content_blocking", "false"),
     ("cosmetic_filters", ""),
-    ("autofill_profiles", "[]"),
     ("recently_closed", "[]"),
     ("muted_sites", "[]"),
 ];
@@ -131,15 +130,6 @@ fn valid_muted_sites(value: &str) -> bool {
             .unwrap_or(false)
 }
 
-fn valid_autofill_profiles(value: &str) -> bool {
-    if value == "[]" {
-        return true;
-    }
-    serde_json::from_str::<serde_json::Value>(value)
-        .map(|v| v.is_array() && v.as_array().map(|a| a.len() <= 50).unwrap_or(false))
-        .unwrap_or(false)
-}
-
 pub(crate) fn valid_setting_value(key: &str, value: &str) -> bool {
     match key {
         "search_engine" => SEARCH_ENGINES.contains(&value),
@@ -157,7 +147,6 @@ pub(crate) fn valid_setting_value(key: &str, value: &str) -> bool {
         "safebrowsing_blocklist" => value.len() <= 20_000 && valid_blocklist(value),
         "adblock_allowlist" => value.len() <= 20_000 && valid_blocklist(value),
         "cosmetic_filters" => value.len() <= 50_000 && valid_cosmetic_filters(value),
-        "autofill_profiles" => value.len() <= 100_000 && valid_autofill_profiles(value),
         "recently_closed" => valid_recently_closed(value),
         "muted_sites" => valid_muted_sites(value),
         _ if key.starts_with("zoom:") => value
@@ -173,11 +162,18 @@ pub fn get_settings(db: State<'_, DbState>) -> Result<HashMap<String, String>, A
     let conn = db.conn();
     let mut map: HashMap<String, String> =
         DEFAULTS.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
-    for row in rows {
-        let (k, v) = row?;
-        map.insert(k, v);
+    if let Some(profile) = resolve_active_profile(&conn) {
+        let mut stmt = conn.prepare("SELECT key, value FROM settings WHERE profile_id = ?1")?;
+        let rows = stmt.query_map([&profile], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        for row in rows {
+            let (k, v) = row?;
+            map.insert(k, v);
+        }
+    }
+    for key in SHELL_KEYS {
+        if let Some(value) = crate::db::shell_state(&conn, key) {
+            map.insert((*key).to_string(), value);
+        }
     }
     Ok(map)
 }
@@ -192,10 +188,11 @@ pub fn set_setting(db: State<'_, DbState>, key: String, value: String) -> Result
         return Err(AppError::InvalidInput(format!("invalid value for setting: {key}")));
     }
     let conn = db.conn();
-    conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
-        params![key, value],
-    )?;
+    if SHELL_KEYS.contains(&key.as_str()) {
+        crate::db::set_shell_state(&conn, &key, &value)?;
+    } else {
+        crate::db::set_setting(&conn, &key, &value)?;
+    }
     Ok(serde_json::json!({ "key": key, "value": value }))
 }
 
@@ -205,13 +202,24 @@ pub fn clear_browsing_data(
     categories: Vec<String>,
 ) -> Result<ClearDataResult, AppError> {
     let conn = db.conn();
+    let Some(profile) = resolve_active_profile(&conn) else {
+        return Ok(ClearDataResult { history: 0, downloads: 0, site_permissions: 0 });
+    };
     let mut result = ClearDataResult { history: 0, downloads: 0, site_permissions: 0 };
     for category in categories {
         match category.as_str() {
-            "history" => result.history = conn.execute("DELETE FROM history", [])? as i64,
-            "downloads" => result.downloads = conn.execute("DELETE FROM downloads", [])? as i64,
+            "history" => {
+                result.history = conn
+                    .execute("DELETE FROM history WHERE profile_id = ?1", params![profile])? as i64
+            }
+            "downloads" => {
+                result.downloads = conn
+                    .execute("DELETE FROM downloads WHERE profile_id = ?1", params![profile])? as i64
+            }
             "site_permissions" => {
-                result.site_permissions = conn.execute("DELETE FROM site_permissions", [])? as i64
+                result.site_permissions = conn
+                    .execute("DELETE FROM site_permissions WHERE profile_id = ?1", params![profile])?
+                    as i64
             }
             // Bookmarks and notes are intentionally never cleared here.
             _ => {}
@@ -223,10 +231,14 @@ pub fn clear_browsing_data(
 #[tauri::command]
 pub fn list_site_permissions(db: State<'_, DbState>) -> Result<Vec<SitePermission>, AppError> {
     let conn = db.conn();
+    let Some(profile) = resolve_active_profile(&conn) else {
+        return Ok(Vec::new());
+    };
     let mut stmt = conn.prepare(
-        "SELECT id, origin, permission, decision, updated_at FROM site_permissions ORDER BY origin ASC",
+        "SELECT id, origin, permission, decision, updated_at FROM site_permissions
+         WHERE profile_id = ?1 ORDER BY origin ASC",
     )?;
-    let rows = stmt.query_map([], |r| {
+    let rows = stmt.query_map([&profile], |r| {
         Ok(SitePermission {
             id: r.get(0)?,
             origin: r.get(1)?,
@@ -264,19 +276,23 @@ pub fn set_site_permission(
     }
 
     let conn = db.conn();
+    let Some(profile) = resolve_active_profile(&conn) else {
+        return Err(AppError::InvalidInput("no active profile".into()));
+    };
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
     conn.execute(
-        "INSERT INTO site_permissions (id, origin, permission, decision, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(origin, permission) DO UPDATE SET
+        "INSERT INTO site_permissions (id, profile_id, origin, permission, decision, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(profile_id, origin, permission) DO UPDATE SET
            decision = excluded.decision,
            updated_at = excluded.updated_at",
-        params![id, clean_origin, clean_permission, clean_decision, now],
+        params![id, profile, clean_origin, clean_permission, clean_decision, now],
     )?;
     let perm = conn.query_row(
-        "SELECT id, origin, permission, decision, updated_at FROM site_permissions WHERE origin = ?1 AND permission = ?2",
-        params![clean_origin, clean_permission],
+        "SELECT id, origin, permission, decision, updated_at FROM site_permissions
+         WHERE profile_id = ?1 AND origin = ?2 AND permission = ?3",
+        params![profile, clean_origin, clean_permission],
         |r| {
             Ok(SitePermission {
                 id: r.get(0)?,
@@ -293,9 +309,16 @@ pub fn set_site_permission(
 #[tauri::command]
 pub fn clear_site_permissions(db: State<'_, DbState>, origin: Option<String>) -> Result<i64, AppError> {
     let conn = db.conn();
+    let Some(profile) = resolve_active_profile(&conn) else { return Ok(0) };
     let changed = match origin {
-        Some(o) => conn.execute("DELETE FROM site_permissions WHERE origin = ?1", params![o])?,
-        None => conn.execute("DELETE FROM site_permissions", [])?,
+        Some(o) => conn.execute(
+            "DELETE FROM site_permissions WHERE profile_id = ?1 AND origin = ?2",
+            params![profile, o],
+        )?,
+        None => conn.execute(
+            "DELETE FROM site_permissions WHERE profile_id = ?1",
+            params![profile],
+        )?,
     };
     Ok(changed as i64)
 }

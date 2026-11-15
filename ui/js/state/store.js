@@ -402,7 +402,7 @@ export async function navigate(rawInput) {
 /** Open one of the internal pages (history, downloads, settings, bookmarks). */
 export async function openInternalPage(page) {
   const route = String(page ?? '').split(':')[0];
-  const known = ['home', 'history', 'downloads', 'bookmarks', 'settings', 'recently-closed', 'reading-list', 'task-manager', 'media-controls', 'viewer', 'unsafe'];
+  const known = ['home', 'history', 'downloads', 'bookmarks', 'settings', 'recently-closed', 'reading-list', 'task-manager', 'media-controls', 'viewer', 'unsafe', 'profiles', 'autofill'];
   if (!known.includes(route)) return null;
   if (route === 'settings') {
     const category = String(page).split(':')[1];

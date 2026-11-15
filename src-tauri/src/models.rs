@@ -8,6 +8,7 @@ pub struct Profile {
     pub name: String,
     pub email: String,
     pub color: String,
+    pub avatar: Option<String>,
     pub sort_order: i64,
     pub created_at: i64,
 }

@@ -66,6 +66,26 @@ test('switching profile switches the workspace set and keeps tabs apart', async 
   assert.ok(!homeTabs.some((item) => item.url === 'https://example.com/work'));
 });
 
+test('renaming and the default profile survive a reload', async () => {
+  const storage = memoryStorage();
+  const fresh = createFallbackDb(storage);
+  const first = (await fresh.list_profiles()).profiles[0];
+  const work = await fresh.create_profile({ name: 'Temp', email: '' });
+
+  await fresh.rename_profile({ profile_id: work.id, name: '  Studio  ' });
+  await assert.rejects(() => fresh.rename_profile({ profile_id: work.id, name: '   ' }), /name required/);
+  await assert.rejects(() => fresh.rename_profile({ profile_id: 'missing', name: 'Nope' }), /not found/);
+
+  // The second profile becomes the default by being moved to the front.
+  await fresh.set_default_profile({ profile_id: work.id });
+  const reopened = createFallbackDb(storage);
+  const { profiles } = await reopened.list_profiles();
+  assert.equal(profiles[0].name, 'Studio');
+  assert.equal(profiles[0].id, work.id);
+  assert.equal(profiles[0].is_default, 1);
+  assert.equal(profiles.find((profile) => profile.id === first.id).is_default, 0);
+});
+
 test('the last profile cannot be deleted, others remove their workspaces', async () => {
   const { profiles } = await db.list_profiles();
   const work = profiles.find((profile) => profile.name === 'Work');

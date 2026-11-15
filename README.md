@@ -69,15 +69,24 @@ Ritam Browser is a local-first desktop browser that prioritizes user privacy and
 - Page translation (LibreTranslate endpoint)
 - Forced dark mode for websites
 
-### Profiles
-- Local profiles with name, label, and color
-- Chrome-style profile switcher
-- Per-profile workspaces and tabs
+### Profiles & autofill
+- Local profiles with name, optional email label, and color
+- Chrome-style profile switcher, plus `govind://profiles` for rename, default and delete
+- Per-profile workspaces, tabs, bookmarks, history, reading list, notes, downloads,
+  site permissions, settings, auto-fill data and engine site data (own folder per profile)
+- Auto-fill of names, emails, phones and addresses (`govind://autofill`): stored per profile,
+  filled only when you press Ctrl+Shift+L on the page you are looking at
 
 ### Data Management
 - Bookmark import/export (Netscape HTML)
+- Import bookmarks and history from Chrome, Edge, Brave, Firefox or Safari (read-only source)
 - Encrypted backup and restore (.gbak)
 - Task manager (per-tab state view)
+
+### Deliberately out of scope
+- **Password manager** — skipped: no encrypted credential vault, so nothing stores passwords.
+- **Sync** — skipped: Ritam has no account service to sync through.
+- **Payment autofill** — skipped: card details are neither stored nor filled.
 
 ---
 
@@ -209,6 +218,11 @@ Access these by typing in the address bar:
 4. **Translation:** Requires external LibreTranslate-compatible endpoint
 5. **Extensions:** Not supported (requires Chromium engine)
 6. **CDP Access:** Not available (Chrome DevTools Protocol not exposed)
+7. **Auto-fill storage:** identities and addresses sit in `autofill.json` inside the profile folder
+   without encryption (0600 on Unix); they are pushed into a tab only on Ctrl+Shift+L and the
+   page script discards them unless the tab's origin matches the one Rust read
+8. **Password import:** source stores are encrypted (DPAPI / Keychain / NSS); imports report
+   passwords as skipped instead of pretending
 
 ---
 
@@ -229,14 +243,14 @@ Access these by typing in the address bar:
 
 ```bash
 cd src-tauri
-cargo test        # 36 tests: URL validation, filtering, commands
+cargo test        # 47 tests: URL validation, filtering, commands, migration, autofill, import
 cargo check       # Compile check
 ```
 
 ### UI Tests
 
 ```bash
-npm test          # 58 unit tests across 11 files
+npm test          # 73 unit tests across 12 files
 ```
 
 ### Debug Mode

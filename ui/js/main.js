@@ -157,6 +157,20 @@ const actions = {
     if (isNative()) api.printTab(store.activeTabId);
     else window.print();
   },
+  'autofill': async () => {
+    const tab = store.activeTab();
+    if (!tab || store.isInternalTab(tab)) { toast('Open a page with a form first.'); return; }
+    if (!isNative()) { toast('Auto-fill is available in the installed app.'); return; }
+    try {
+      const result = await api.requestAutofill(tab.id);
+      if (!result?.filled) toast(result?.reason ?? 'No saved auto-fill data for this profile.');
+      else toast('Choose an entry in the form to fill it.');
+    } catch (error) {
+      toast(`Auto-fill: ${error?.message ?? error}`);
+    }
+  },
+  'profiles': async () => { await openInternal('profiles'); },
+  'autofill-settings': async () => { await openInternal('autofill'); },
   'tab-search': async () => { await openPalette({ tabsOnly: true }); },
   'task-manager': async () => { await openInternal('task-manager'); },
   'media-controls': async () => { await openMediaControls(); },
@@ -585,7 +599,6 @@ async function boot() {
     api.setSpellcheck(store.settings.spellcheck !== 'false').catch(() => {});
     api.setDoNotTrack(store.settings.do_not_track === 'true').catch(() => {});
     api.setContentBlocking(store.settings.content_blocking === 'true' ? (store.settings.cosmetic_filters ?? '') : '').catch(() => {});
-    api.setAutofillProfiles(store.settings.autofill_profiles ?? '[]').catch(() => {});
   }
 
   // Wire everything before first paint of dynamic regions
@@ -866,7 +879,6 @@ function wireGlobalEvents() {
       api.setSpellcheck(store.settings.spellcheck !== 'false').catch(() => {});
       api.setDoNotTrack(store.settings.do_not_track === 'true').catch(() => {});
       api.setContentBlocking(store.settings.content_blocking === 'true' ? (store.settings.cosmetic_filters ?? '') : '').catch(() => {});
-      api.setAutofillProfiles(store.settings.autofill_profiles ?? '[]').catch(() => {});
     }
     await refreshTabs();
     await refreshBookmarks();
@@ -1068,6 +1080,7 @@ function wireShortcuts() {
     if (mod && key === 'f') { e.preventDefault(); actions.find(); return; }
     if (mod && key === 'p') { e.preventDefault(); actions.print(); return; }
     if (mod && e.shiftKey && key === 'a') { e.preventDefault(); actions['tab-search'](); return; }
+    if (mod && e.shiftKey && key === 'l') { e.preventDefault(); actions.autofill(); return; }
     if (e.altKey && e.shiftKey && key === 'm') { e.preventDefault(); actions['mute-tab'](); return; }
     if (e.altKey && e.shiftKey && key === 'd') { e.preventDefault(); actions['force-dark-websites'](); return; }
     if (e.altKey && e.shiftKey && key === 't') { e.preventDefault(); actions['translate-page'](); return; }
@@ -1124,6 +1137,9 @@ function buildPaletteCommands() {
     { title: 'Open Bookmarks', hint: 'govind://bookmarks', keywords: ['favorites list'], run: run(actions.bookmarks) },
     { title: 'Open Scratchpad', hint: 'Panel', keywords: ['note', 'notes'], run: run(async () => openPanelWithNav('scratchpad')) },
     { title: 'Open Settings', hint: 'govind://settings', keywords: ['preferences', 'options'], run: run(actions.settings) },
+    { title: 'Fill This Form', hint: 'Ctrl Shift L', keywords: ['autofill', 'address', 'identity', 'form'], run: run(actions.autofill) },
+    { title: 'Profiles & Import', hint: 'govind://profiles', keywords: ['profile', 'switch', 'import', 'chrome', 'firefox', 'brave', 'edge'], run: run(actions.profiles) },
+    { title: 'Auto-fill Settings', hint: 'govind://autofill', keywords: ['autofill', 'saved addresses', 'identities'], run: run(actions['autofill-settings']) },
     { title: 'Clear Browsing Data…', hint: 'Privacy', keywords: ['delete', 'privacy', 'erase'], run: run(async () => openInternal('settings:privacy')) },
     { title: 'Toggle Dark / Light Theme', hint: 'Appearance', keywords: ['appearance', 'zen dark', 'color'], run: run(async () => {
         const next = (store.settings.theme === 'zen-dark') ? 'zen-light' : 'zen-dark';

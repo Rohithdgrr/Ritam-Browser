@@ -215,10 +215,18 @@ pub fn build_bookmarks_html(bookmarks: &[Bookmark]) -> String {
 
 /// Persist parsed items into the bookmarks table, honouring the URL unique
 /// constraint (existing URL → update title, keep favourite flag).
-fn insert_bookmarks(conn: &rusqlite::Connection, items: &[ParsedBookmark]) -> Result<ImportSummary, AppError> {
+pub(crate) fn insert_bookmarks(
+    conn: &rusqlite::Connection,
+    items: &[ParsedBookmark],
+) -> Result<ImportSummary, AppError> {
     let mut summary = ImportSummary { imported: 0, skipped: 0, duplicates: 0 };
-    let mut order: i64 =
-        conn.query_row("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM bookmarks", [], |r| r.get(0))?;
+    let profile = crate::commands::profiles::resolve_active_profile(conn)
+        .ok_or_else(|| AppError::InvalidInput("no active profile".into()))?;
+    let mut order: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM bookmarks WHERE profile_id = ?1",
+        params![profile],
+        |r| r.get(0),
+    )?;
     for item in items {
         if summary.imported + summary.duplicates >= MAX_ITEMS {
             summary.skipped += 1;
@@ -231,21 +239,26 @@ fn insert_bookmarks(conn: &rusqlite::Connection, items: &[ParsedBookmark]) -> Re
             continue;
         };
         let title = if item.title.is_empty() { target.clone() } else { item.title.clone() };
-        let existing: Option<String> =
-            conn.query_row("SELECT id FROM bookmarks WHERE url = ?1", params![target], |r| r.get(0)).ok();
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT id FROM bookmarks WHERE profile_id = ?1 AND url = ?2",
+                params![profile, target],
+                |r| r.get(0),
+            )
+            .ok();
         if existing.is_some() {
             conn.execute(
-                "UPDATE bookmarks SET title = ?1 WHERE url = ?2",
-                params![title, target],
+                "UPDATE bookmarks SET title = ?1 WHERE profile_id = ?2 AND url = ?3",
+                params![title, profile, target],
             )?;
             summary.duplicates += 1;
             continue;
         }
         let id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO bookmarks (id, title, url, is_favorite, sort_order, created_at)
-             VALUES (?1, ?2, ?3, 0, ?4, ?5)",
-            params![id, title, target, order, now_ms()],
+            "INSERT INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at)
+             VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
+            params![id, profile, title, target, order, now_ms()],
         )?;
         order += 1;
         summary.imported += 1;
@@ -350,11 +363,14 @@ pub async fn export_bookmarks_file(
 /// Read every bookmark and serialise it as a Netscape file.
 pub fn export_bookmarks_to_string(db: &DbState) -> Result<String, AppError> {
     let conn = db.conn();
+    let profile = crate::commands::profiles::resolve_active_profile(&conn)
+        .ok_or_else(|| AppError::InvalidInput("no active profile".into()))?;
     let mut stmt = conn.prepare(
         "SELECT id, title, url, is_favorite, sort_order, created_at FROM bookmarks
+         WHERE profile_id = ?1
          ORDER BY is_favorite DESC, sort_order ASC, created_at DESC",
     )?;
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![profile], |row| {
         Ok(Bookmark {
             id: row.get(0)?,
             title: row.get(1)?,

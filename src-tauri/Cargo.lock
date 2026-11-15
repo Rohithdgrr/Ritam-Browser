@@ -3451,6 +3451,7 @@ dependencies = [
  "adblock",
  "base64 0.22.1",
  "log",
+ "plist",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",

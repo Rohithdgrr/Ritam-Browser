@@ -188,25 +188,22 @@ async function renderCategory(category, host = $('#settings-cards')) {
   if (category === 'autofill') {
     host.innerHTML = `
       <section class="settings-card">
-        <h4>Saved profiles</h4>
-        <p class="s-desc">Ritam fills recognizable form fields (name, email, phone, address, card) from these profiles. Stored only in the local database — never synced anywhere.</p>
-        <div id="autofill-list"></div>
-        <div id="autofill-form" class="hidden">
-          <div class="setting-row"><div><div class="s-title">Label</div></div>
-            <input id="af-label" type="text" spellcheck="false" placeholder="e.g. Work, Personal" maxlength="60"/></div>
-          ${[['full_name','Full name'],['email','Email'],['phone','Phone'],['address_line1','Address line 1'],['address_line2','Address line 2'],['city','City'],['region','State / region'],['postal_code','Postal code'],['country','Country'],['card_name','Name on card'],['card_number','Card number'],['card_expiry','Card expiry (MM/YY)'],['card_csc','Security code']]
-            .map(([k,l]) => `<div class="setting-row"><div><div class="s-title">${l}</div></div>
-              <input id="af-${k}" type="text" spellcheck="false" autocomplete="off"/></div>`).join('')}
-          <div class="setting-row">
-            <button class="btn-primary" id="af-save" type="button">Save profile</button>
-            <button class="btn-secondary" id="af-cancel" type="button">Cancel</button>
-          </div>
+        <h4>Auto-fill has its own page</h4>
+        <p class="s-desc">Names, emails, phone numbers and addresses are saved per profile and
+          filled only when you press <strong>Ctrl+Shift+L</strong> on a page. The file sits in the
+          profile folder without encryption; passwords and card details are never stored.</p>
+        <div class="setting-row">
+          <button class="btn-secondary" data-internal-page="autofill" type="button">Open auto-fill settings</button>
         </div>
-        <div class="setting-row" id="af-add-row">
-          <button class="btn-secondary" id="af-add" type="button">Add profile…</button>
+      </section>
+      <section class="settings-card">
+        <h4>Import from another browser</h4>
+        <p class="s-desc">Bookmarks and history from Chrome, Edge, Brave, Firefox or Safari.
+          The source is read from a temp copy and never written to.</p>
+        <div class="setting-row">
+          <button class="btn-secondary" data-internal-page="profiles" type="button">Open profiles &amp; import</button>
         </div>
       </section>`;
-    await renderAutofillList(host);
     return;
   }
 
@@ -369,52 +366,6 @@ async function renderCategory(category, host = $('#settings-cards')) {
     </section>`;
 }
 
-const AF_FIELDS = ['full_name','email','phone','address_line1','address_line2','city','region','postal_code','country','card_name','card_number','card_expiry','card_csc'];
-const AF_LABELS = { full_name:'Full name', email:'Email', phone:'Phone', address_line1:'Address line 1', address_line2:'Address line 2', city:'City', region:'State / region', postal_code:'Postal code', country:'Country', card_name:'Name on card', card_number:'Card number', card_expiry:'Card expiry', card_csc:'Security code' };
-
-function readAutofillProfiles() {
-  try {
-    const parsed = JSON.parse(store.settings.autofill_profiles ?? '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
-}
-
-async function saveAutofillProfiles(profiles) {
-  const json = JSON.stringify(profiles.slice(0, 50));
-  store.settings.autofill_profiles = json;
-  await api.setSetting('autofill_profiles', json);
-  if (api.isNative()) await api.setAutofillProfiles(json).catch(() => {});
-}
-
-async function renderAutofillList(host) {
-  const list = host.querySelector('#autofill-list');
-  const profiles = readAutofillProfiles();
-  if (!list) return;
-  list.innerHTML = profiles.length === 0
-    ? '<p class="s-desc">No saved profiles yet.</p>'
-    : profiles.map((p, i) => `
-      <div class="perm-row">
-        <span class="perm-origin">${escapeHtml(p.label || p.full_name || p.email || `Profile ${i + 1}`)}</span>
-        <span class="perm-label">${escapeHtml([p.email, p.phone].filter(Boolean).join(' · ') || '—')}</span>
-        <button class="btn-secondary" data-af-edit="${i}" type="button">Edit</button>
-        <button class="btn-secondary" data-af-del="${i}" type="button">Delete</button>
-      </div>`).join('');
-  list.querySelectorAll('[data-af-del]').forEach((btn) => btn.addEventListener('click', async () => {
-    const next = readAutofillProfiles().filter((_, i) => i !== Number(btn.dataset.afDel));
-    await saveAutofillProfiles(next);
-    await renderCategory('autofill');
-    toast('Profile deleted.');
-  }));
-  list.querySelectorAll('[data-af-edit]').forEach((btn) => btn.addEventListener('click', () => {
-    const p = readAutofillProfiles()[Number(btn.dataset.afEdit)];
-    if (!p) return;
-    host.querySelector('#autofill-form')?.classList.remove('hidden');
-    host.querySelector('#af-label').value = p.label ?? '';
-    AF_FIELDS.forEach((f) => { const el = host.querySelector(`#af-${f}`); if (el) el.value = p[f] ?? ''; });
-    host.querySelector('#af-save').dataset.editIndex = btn.dataset.afEdit;
-    host.querySelector('#af-add-row')?.classList.add('hidden');
-  }));
-}
 
 async function renderPermissions(host) {
   const card = host.querySelector('#permissions-card');
@@ -527,35 +478,6 @@ function wireSettingsPage(container) {
     await api.setSetting('force_dark_websites', store.settings.force_dark_websites);
     if (api.isNative()) await api.setForceDarkWebsites(enabled);
     else toast('Forced website dark mode is available in the installed app.');
-  });
-
-  on('#af-add', 'click', () => {
-    const form = container.querySelector('#autofill-form');
-    if (!form) return;
-    form.classList.remove('hidden');
-    form.querySelectorAll('input').forEach((i) => { i.value = ''; });
-    form.querySelector('#af-save').dataset.editIndex = '';
-    container.querySelector('#af-add-row')?.classList.add('hidden');
-  });
-  on('#af-cancel', 'click', async () => {
-    container.querySelector('#autofill-form')?.classList.add('hidden');
-    container.querySelector('#af-add-row')?.classList.remove('hidden');
-    await renderCategory('autofill');
-  });
-  on('#af-save', 'click', async (e) => {
-    const profiles = readAutofillProfiles();
-    const profile = { label: container.querySelector('#af-label')?.value.trim().slice(0, 60) || undefined };
-    AF_FIELDS.forEach((f) => {
-      const v = container.querySelector(`#af-${f}`)?.value.trim().slice(0, 200);
-      if (v) profile[f] = v;
-    });
-    if (AF_FIELDS.every((f) => !profile[f])) { toast('Fill in at least one field.'); return; }
-    const idx = e.target.dataset.editIndex;
-    if (idx !== '' && idx !== undefined) profiles[Number(idx)] = profile;
-    else profiles.push(profile);
-    await saveAutofillProfiles(profiles);
-    await renderCategory('autofill');
-    toast('Profile saved.');
   });
 
   on('#setting-spellcheck', 'change', async (e) => {

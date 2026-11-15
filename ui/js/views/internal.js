@@ -16,6 +16,8 @@ import { displayUrl, hostOf, monogram } from '../lib/url.js';
 import { store, refreshBookmarks, goHome, persistClosedTabs, clearClosedTabs } from '../state/store.js';
 import { renderSettingsPage } from './settings.js';
 import { renderViewerPage } from './viewer.js';
+import { renderProfilesPage } from './profiles.js';
+import { renderAutofillPage } from './autofill.js';
 
 const ICON = {
   history: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
@@ -31,12 +33,16 @@ const ICON = {
   folder: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
   search: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>',
   file: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+  profiles: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  autofill: '<svg class="icon sm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h5M7 13h10M7 17h7"/></svg>',
 };
 
 const NAV_ITEMS = [
   { page: 'history', label: 'History', icon: ICON.history },
   { page: 'downloads', label: 'Downloads', icon: ICON.downloads },
   { page: 'bookmarks', label: 'Bookmarks', icon: ICON.bookmarks },
+  { page: 'profiles', label: 'Profiles', icon: ICON.profiles },
+  { page: 'autofill', label: 'Autofill', icon: ICON.autofill },
   { page: 'reading-list', label: 'Reading list', icon: ICON.reading },
   { page: 'task-manager', label: 'Task manager', icon: ICON.taskManager },
   { page: 'media-controls', label: 'Media controls', icon: ICON.media },
@@ -49,6 +55,8 @@ const PAGE_TITLES = {
   history: 'History',
   downloads: 'Downloads',
   bookmarks: 'Bookmarks',
+  profiles: 'Profiles',
+  autofill: 'Autofill',
   'reading-list': 'Reading list',
   'task-manager': 'Task manager',
   'media-controls': 'Media controls',
@@ -135,9 +143,11 @@ export async function renderInternalPage() {
   else if (page === 'task-manager') renderTaskManagerPage();
   else if (page === 'media-controls') await renderMediaControlsPage();
   else if (page === 'recently-closed') renderRecentlyClosedPage();
+  else if (page === 'profiles') await renderProfilesPage($('#internal-body'));
+  else if (page === 'autofill') await renderAutofillPage($('#internal-body'));
 
   wireInternal();
-  if (page === 'recently-closed') $('.internal-search')?.classList.add('hidden');
+  if (['recently-closed', 'profiles', 'autofill'].includes(page)) $('.internal-search')?.classList.add('hidden');
 }
 
 function renderRecentlyClosedPage() {

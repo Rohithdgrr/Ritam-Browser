@@ -74,7 +74,7 @@ pub fn create_tab(
             id
         }
         None => conn.query_row(
-            "SELECT value FROM settings WHERE key = 'active_workspace_id'",
+            "SELECT value FROM shell_state WHERE key = 'active_workspace_id'",
             [],
             |r| r.get(0),
         )
@@ -143,7 +143,7 @@ pub async fn activate_tab(
         // Persist the workspace of the activated tab as the active workspace.
         if let Ok(tab) = get_tab(&conn, &tab_id) {
             conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_workspace_id', ?1)",
+                "INSERT OR REPLACE INTO shell_state (key, value) VALUES ('active_workspace_id', ?1)",
                 params![tab.workspace_id],
             )?;
         }
@@ -540,21 +540,6 @@ pub fn get_network_blocker_status(
         "redirectedRequests": status.redirected_requests,
         "rewrittenRequests": status.rewritten_requests,
     })
-}
-
-/// Push the JSON autofill-profile array into every page.
-#[tauri::command]
-pub fn set_autofill_profiles(manager: State<'_, TabWebviewManager>, profiles_json: String) -> Result<(), AppError> {
-    if profiles_json.len() > 100_000 {
-        return Err(AppError::InvalidInput("autofill profiles too large".into()));
-    }
-    let parsed: serde_json::Value = serde_json::from_str(&profiles_json)
-        .map_err(|_| AppError::InvalidInput("autofill profiles must be a JSON array".into()))?;
-    if !parsed.is_array() || parsed.as_array().map(|a| a.len()).unwrap_or(0) > 50 {
-        return Err(AppError::InvalidInput("autofill profiles must be an array of at most 50 entries".into()));
-    }
-    manager.set_autofill_profiles(profiles_json);
-    Ok(())
 }
 
 /// Capture the page's visible text for an offline reading-list snapshot.

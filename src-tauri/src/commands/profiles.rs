@@ -5,14 +5,17 @@
 //! email is a label the user chooses for the profile, exactly like a local
 //! Chrome profile that was never signed in.
 //!
-//! Bookmarks, history, downloads and the reading list are shared across
-//! profiles for now; only the tab session is separated.
+//! Since schema v2 every row that belongs to a browser (bookmarks, history,
+//! downloads, reading list, permissions, settings) carries `profile_id`, and
+//! each profile gets its own webview data directory. Deleting a profile drops
+//! both.
 
-use crate::db::{active_profile_id, now_ms, set_setting, DbState};
+use crate::db::{active_profile_id, now_ms, set_shell_state, DbState};
 use crate::error::AppError;
 use crate::models::Profile;
 use rusqlite::{params, Connection};
-use tauri::State;
+use std::path::PathBuf;
+use tauri::{AppHandle, Manager, State};
 
 const PROFILE_COLORS: &[&str] = &[
     "#4A6B5D", "#2F6F8F", "#8A5A44", "#6B4E8F", "#B5651D", "#3F7A4F", "#A04456", "#4C5B7A",
@@ -20,7 +23,7 @@ const PROFILE_COLORS: &[&str] = &[
 const MAX_NAME: usize = 80;
 const MAX_EMAIL: usize = 254;
 
-const PROFILE_COLS: &str = "id, name, email, color, sort_order, created_at";
+const PROFILE_COLS: &str = "id, name, email, color, avatar, sort_order, created_at";
 
 fn row_to_profile(row: &rusqlite::Row) -> rusqlite::Result<Profile> {
     Ok(Profile {
@@ -28,8 +31,9 @@ fn row_to_profile(row: &rusqlite::Row) -> rusqlite::Result<Profile> {
         name: row.get(1)?,
         email: row.get(2)?,
         color: row.get(3)?,
-        sort_order: row.get(4)?,
-        created_at: row.get(5)?,
+        avatar: row.get(4)?,
+        sort_order: row.get(5)?,
+        created_at: row.get(6)?,
     })
 }
 
@@ -78,6 +82,35 @@ fn clean_color(raw: Option<String>) -> String {
     }
 }
 
+/// A single emoji or two letters, or nothing. Anything longer is a rendering
+/// accident, not an avatar.
+fn clean_avatar(raw: Option<String>) -> Option<String> {
+    let value = raw?.trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.chars().take(4).collect())
+    }
+}
+
+/// Per-profile directory: `{app data}/profiles/{id}`. Holds the profile's
+/// webview data and auto-fill file. 0700 on Unix so other users cannot read it.
+pub fn profile_dir(app: &AppHandle, profile_id: &str) -> Result<PathBuf, AppError> {
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::InvalidInput(format!("could not resolve app data dir: {e}")))?
+        .join("profiles")
+        .join(profile_id);
+    std::fs::create_dir_all(&base)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o700));
+    }
+    Ok(base)
+}
+
 /// The profile whose workspaces are currently listed. Falls back to the oldest
 /// profile so a missing setting can never hide every workspace.
 pub fn resolve_active_profile(conn: &Connection) -> Option<String> {
@@ -108,7 +141,7 @@ pub fn ensure_default_profile(conn: &Connection) -> Result<(), AppError> {
              VALUES (?1, 'Personal', '', ?2, 0, ?3)",
             params![id, PROFILE_COLORS[0], now_ms()],
         )?;
-        set_setting(conn, "active_profile_id", &id)?;
+        set_shell_state(conn, "active_profile_id", &id)?;
     }
     if let Some(profile) = resolve_active_profile(conn) {
         conn.execute(
@@ -143,21 +176,35 @@ pub fn list_profiles(db: State<'_, DbState>) -> Result<serde_json::Value, AppErr
     let mut stmt = conn.prepare(&format!(
         "SELECT {PROFILE_COLS} FROM profiles ORDER BY sort_order ASC, created_at ASC"
     ))?;
-    let rows = stmt.query_map([], row_to_profile)?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
-    }
+    let rows: Vec<Profile> = stmt.query_map([], row_to_profile)?.collect::<Result<_, _>>()?;
+    let default_id = rows.first().map(|p| p.id.clone());
     let active = resolve_active_profile(&conn);
-    Ok(serde_json::json!({ "profiles": out, "active_profile_id": active }))
+    let profiles: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "id": p.id,
+                "name": p.name,
+                "email": p.email,
+                "color": p.color,
+                "avatar": p.avatar,
+                "sort_order": p.sort_order,
+                "created_at": p.created_at,
+                "is_default": Some(&p.id) == default_id.as_ref(),
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({ "profiles": profiles, "active_profile_id": active }))
 }
 
 #[tauri::command]
 pub fn create_profile(
+    app: AppHandle,
     db: State<'_, DbState>,
     name: String,
     email: Option<String>,
     color: Option<String>,
+    avatar: Option<String>,
 ) -> Result<Profile, AppError> {
     let name = clean_name(&name)?;
     let email = clean_email(email)?;
@@ -166,28 +213,30 @@ pub fn create_profile(
         PROFILE_COLORS[(count as usize) % PROFILE_COLORS.len()].to_string()
     };
     let color = color.map(|c| clean_color(Some(c))).unwrap_or(fallback_color);
+    let avatar = clean_avatar(avatar);
     let conn = db.conn();
     let sort_order: i64 = conn.query_row("SELECT COUNT(*) FROM profiles", [], |r| r.get(0))?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
     conn.execute(
-        "INSERT INTO profiles (id, name, email, color, sort_order, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, name, email, color, sort_order, now],
+        "INSERT INTO profiles (id, name, email, color, avatar, sort_order, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![id, name, email, color, avatar, sort_order, now],
     )?;
     ensure_workspace(&conn, &id)?;
-    Ok(Profile { id, name, email, color, sort_order, created_at: now })
+    drop(conn);
+    profile_dir(&app, &id)?;
+    Ok(Profile { id, name, email, color, avatar, sort_order, created_at: now })
 }
 
-#[tauri::command]
-pub fn update_profile(
-    db: State<'_, DbState>,
-    profile_id: String,
+fn update_profile_row(
+    conn: &Connection,
+    profile_id: &str,
     name: Option<String>,
     email: Option<String>,
     color: Option<String>,
+    avatar: Option<String>,
 ) -> Result<Profile, AppError> {
-    let conn = db.conn();
     let current = conn
         .query_row(
             &format!("SELECT {PROFILE_COLS} FROM profiles WHERE id = ?1"),
@@ -204,24 +253,80 @@ pub fn update_profile(
         None => current.email,
     };
     let color = color.map(|c| clean_color(Some(c))).unwrap_or(current.color);
+    let avatar = match avatar {
+        Some(value) => clean_avatar(Some(value)),
+        None => current.avatar,
+    };
     conn.execute(
-        "UPDATE profiles SET name = ?1, email = ?2, color = ?3 WHERE id = ?4",
-        params![name, email, color, profile_id],
+        "UPDATE profiles SET name = ?1, email = ?2, color = ?3, avatar = ?4 WHERE id = ?5",
+        params![name, email, color, avatar, profile_id],
     )?;
-    let updated = conn.query_row(
+    conn.query_row(
         &format!("SELECT {PROFILE_COLS} FROM profiles WHERE id = ?1"),
         params![profile_id],
         row_to_profile,
-    )?;
-    Ok(updated)
+    )
+    .map_err(AppError::from)
 }
 
 #[tauri::command]
-pub fn delete_profile(db: State<'_, DbState>, profile_id: String) -> Result<serde_json::Value, AppError> {
+pub fn update_profile(
+    db: State<'_, DbState>,
+    profile_id: String,
+    name: Option<String>,
+    email: Option<String>,
+    color: Option<String>,
+    avatar: Option<String>,
+) -> Result<Profile, AppError> {
+    let conn = db.conn();
+    update_profile_row(&conn, &profile_id, name, email, color, avatar)
+}
+
+#[tauri::command]
+pub fn rename_profile(db: State<'_, DbState>, profile_id: String, name: String) -> Result<Profile, AppError> {
+    let conn = db.conn();
+    update_profile_row(&conn, &profile_id, Some(name), None, None, None)
+}
+
+/// The default profile is the one the app starts on. There is no extra column:
+/// it is simply the first profile in `sort_order`.
+#[tauri::command]
+pub fn set_default_profile(db: State<'_, DbState>, profile_id: String) -> Result<serde_json::Value, AppError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare("SELECT id FROM profiles ORDER BY sort_order ASC, created_at ASC")?;
+    let mut ids: Vec<String> = stmt.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    if !ids.contains(&profile_id) {
+        return Err(AppError::NotFound("profile not found".into()));
+    }
+    ids.retain(|id| id != &profile_id);
+    ids.insert(0, profile_id.clone());
+    for (index, id) in ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE profiles SET sort_order = ?1 WHERE id = ?2",
+            params![index as i64, id],
+        )?;
+    }
+    Ok(serde_json::json!({ "default_profile_id": profile_id }))
+}
+
+/// Removes a profile's workspaces, tabs and every scoped row, then its files.
+/// The active profile cannot be deleted: the user must switch away first, so a
+/// mis-click can never leave the shell without its current profile.
+#[tauri::command]
+pub fn delete_profile(
+    app: AppHandle,
+    db: State<'_, DbState>,
+    profile_id: String,
+) -> Result<serde_json::Value, AppError> {
     let conn = db.conn();
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM profiles", [], |r| r.get(0))?;
     if count <= 1 {
         return Err(AppError::InvalidInput("cannot delete the last profile".into()));
+    }
+    if active_profile_id(&conn).as_deref() == Some(profile_id.as_str()) {
+        return Err(AppError::InvalidInput(
+            "switch to another profile before deleting this one".into(),
+        ));
     }
     let exists: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM profiles WHERE id = ?1)",
@@ -231,16 +336,25 @@ pub fn delete_profile(db: State<'_, DbState>, profile_id: String) -> Result<serd
     if !exists {
         return Err(AppError::NotFound("profile not found".into()));
     }
-    // Tabs are removed by the workspace foreign key.
-    conn.execute("DELETE FROM workspaces WHERE profile_id = ?1", params![profile_id])?;
-    conn.execute("DELETE FROM profiles WHERE id = ?1", params![profile_id])?;
-    if active_profile_id(&conn).as_deref() == Some(profile_id.as_str()) {
-        let fallback = resolve_active_profile(&conn);
-        if let Some(fallback) = fallback {
-            set_setting(&conn, "active_profile_id", &fallback)?;
-            let workspace = ensure_workspace(&conn, &fallback)?;
-            set_setting(&conn, "active_workspace_id", &workspace)?;
-        }
+    let tx = conn.unchecked_transaction()?;
+    for table in [
+        "bookmarks",
+        "history",
+        "downloads",
+        "reading_list",
+        "site_permissions",
+        "settings",
+        "notes",
+    ] {
+        tx.execute(&format!("DELETE FROM {table} WHERE profile_id = ?1"), params![profile_id])?;
+    }
+    // Tabs go with their workspace (ON DELETE CASCADE).
+    tx.execute("DELETE FROM workspaces WHERE profile_id = ?1", params![profile_id])?;
+    tx.execute("DELETE FROM profiles WHERE id = ?1", params![profile_id])?;
+    tx.commit()?;
+    drop(conn);
+    if let Ok(dir) = profile_dir(&app, &profile_id) {
+        let _ = std::fs::remove_dir_all(dir);
     }
     Ok(serde_json::json!({ "deleted_id": profile_id }))
 }
@@ -256,9 +370,9 @@ pub fn set_active_profile(db: State<'_, DbState>, profile_id: String) -> Result<
     if !exists {
         return Err(AppError::NotFound("profile not found".into()));
     }
-    set_setting(&conn, "active_profile_id", &profile_id)?;
+    set_shell_state(&conn, "active_profile_id", &profile_id)?;
     let workspace = ensure_workspace(&conn, &profile_id)?;
-    set_setting(&conn, "active_workspace_id", &workspace)?;
+    set_shell_state(&conn, "active_workspace_id", &workspace)?;
     Ok(serde_json::json!({ "active_profile_id": profile_id, "active_workspace_id": workspace }))
 }
 
@@ -269,6 +383,7 @@ mod tests {
     fn conn() -> Connection {
         let conn = Connection::open_in_memory().expect("memory db");
         conn.execute_batch(include_str!("../../migrations/0001_init.sql")).expect("schema");
+        crate::db::apply_profile_scope(&conn, None).expect("profile scope");
         conn
     }
 
@@ -300,7 +415,7 @@ mod tests {
 
         // Same query the command uses, with the setting pointing at each profile.
         let scoped = |profile: &str| -> Vec<String> {
-            set_setting(&conn, "active_profile_id", profile).unwrap();
+            set_shell_state(&conn, "active_profile_id", profile).unwrap();
             let mut stmt = conn
                 .prepare("SELECT id FROM workspaces WHERE profile_id = ?1 ORDER BY sort_order ASC")
                 .unwrap();

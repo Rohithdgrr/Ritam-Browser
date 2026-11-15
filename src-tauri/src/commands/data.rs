@@ -1,11 +1,17 @@
 //! Bookmarks, history, notes and downloads — plain SQL over the local database.
 
+use crate::commands::profiles::resolve_active_profile;
 use crate::db::{now_ms, DbState};
 use crate::error::AppError;
 use crate::models::{Bookmark, Download, HistoryEntry, Note, ReadingItem};
 use crate::navigation::validate_saved_url;
-use rusqlite::params;
+use rusqlite::{params, Connection};
 use tauri::State;
+
+/// Every read and write in this module belongs to exactly one profile.
+fn profile(conn: &Connection) -> Result<String, AppError> {
+    resolve_active_profile(conn).ok_or_else(|| AppError::InvalidInput("no active profile".into()))
+}
 
 // ── Bookmarks ─────────────────────────────────────────────────────────
 
@@ -24,10 +30,12 @@ const BOOKMARK_COLS: &str = "id, title, url, is_favorite, sort_order, created_at
 #[tauri::command]
 pub fn list_bookmarks(db: State<'_, DbState>) -> Result<Vec<Bookmark>, AppError> {
     let conn = db.conn();
+    let profile = profile(&conn)?;
     let mut stmt = conn.prepare(&format!(
-        "SELECT {BOOKMARK_COLS} FROM bookmarks ORDER BY is_favorite DESC, sort_order ASC, created_at DESC"
+        "SELECT {BOOKMARK_COLS} FROM bookmarks WHERE profile_id = ?1
+         ORDER BY is_favorite DESC, sort_order ASC, created_at DESC"
     ))?;
-    let rows = stmt.query_map([], row_to_bookmark)?;
+    let rows = stmt.query_map(params![profile], row_to_bookmark)?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
@@ -55,20 +63,24 @@ pub fn save_bookmark(
         .collect();
 
     let conn = db.conn();
-    let order: i64 =
-        conn.query_row("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM bookmarks", [], |r| r.get(0))?;
+    let profile = profile(&conn)?;
+    let order: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM bookmarks WHERE profile_id = ?1",
+        params![profile],
+        |r| r.get(0),
+    )?;
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO bookmarks (id, title, url, is_favorite, sort_order, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-         ON CONFLICT(url) DO UPDATE SET
+        "INSERT INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(profile_id, url) DO UPDATE SET
            title = excluded.title,
            is_favorite = MAX(bookmarks.is_favorite, excluded.is_favorite)",
-        params![id, clean_title, target, favorite, order, now_ms()],
+        params![id, profile, clean_title, target, favorite, order, now_ms()],
     )?;
     let bookmark = conn.query_row(
-        &format!("SELECT {BOOKMARK_COLS} FROM bookmarks WHERE url = ?1"),
-        params![target],
+        &format!("SELECT {BOOKMARK_COLS} FROM bookmarks WHERE profile_id = ?1 AND url = ?2"),
+        params![profile, target],
         row_to_bookmark,
     )?;
     Ok(bookmark)
@@ -77,16 +89,21 @@ pub fn save_bookmark(
 #[tauri::command]
 pub fn delete_bookmark(db: State<'_, DbState>, bookmark_id: String) -> Result<bool, AppError> {
     let conn = db.conn();
-    let changed = conn.execute("DELETE FROM bookmarks WHERE id = ?1", params![bookmark_id])?;
+    let profile = profile(&conn)?;
+    let changed = conn.execute(
+        "DELETE FROM bookmarks WHERE id = ?1 AND profile_id = ?2",
+        params![bookmark_id, profile],
+    )?;
     Ok(changed > 0)
 }
 
 #[tauri::command]
 pub fn toggle_favorite(db: State<'_, DbState>, bookmark_id: String) -> Result<Bookmark, AppError> {
     let conn = db.conn();
+    let profile = profile(&conn)?;
     let changed = conn.execute(
-        "UPDATE bookmarks SET is_favorite = 1 - is_favorite WHERE id = ?1",
-        params![bookmark_id],
+        "UPDATE bookmarks SET is_favorite = 1 - is_favorite WHERE id = ?1 AND profile_id = ?2",
+        params![bookmark_id, profile],
     )?;
     if changed == 0 {
         return Err(AppError::NotFound("bookmark not found".into()));
@@ -120,21 +137,24 @@ pub fn search_history(
     let q = query.unwrap_or_default().trim().to_lowercase();
     let limit = limit.unwrap_or(100).clamp(1, 500);
     let conn = db.conn();
+    let profile = profile(&conn)?;
     let mut out = Vec::new();
     if q.is_empty() {
         let mut stmt = conn.prepare(
-            "SELECT id, url, title, visited_at, visit_count FROM history ORDER BY visited_at DESC LIMIT ?1",
+            "SELECT id, url, title, visited_at, visit_count FROM history WHERE profile_id = ?1
+             ORDER BY visited_at DESC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![limit], row_to_history)?;
+        let rows = stmt.query_map(params![profile, limit], row_to_history)?;
         for row in rows { out.push(row?); }
     } else {
         let pattern = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
         let mut stmt = conn.prepare(
             "SELECT id, url, title, visited_at, visit_count FROM history
-             WHERE lower(url) LIKE ?1 ESCAPE '\\' OR lower(title) LIKE ?1 ESCAPE '\\'
-             ORDER BY visited_at DESC LIMIT ?2",
+             WHERE profile_id = ?1
+               AND (lower(url) LIKE ?2 ESCAPE '\\' OR lower(title) LIKE ?2 ESCAPE '\\')
+             ORDER BY visited_at DESC LIMIT ?3",
         )?;
-        let rows = stmt.query_map(params![pattern, limit], row_to_history)?;
+        let rows = stmt.query_map(params![profile, pattern, limit], row_to_history)?;
         for row in rows { out.push(row?); }
     }
     Ok(out)
@@ -152,18 +172,20 @@ pub fn add_history_entry(
     }
     let clean_title: String = title.as_deref().unwrap_or(&target).chars().take(500).collect();
     let conn = db.conn();
+    let profile = profile(&conn)?;
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO history (id, url, title, visited_at, visit_count) VALUES (?1, ?2, ?3, ?4, 1)
-         ON CONFLICT(url) DO UPDATE SET
+        "INSERT INTO history (id, profile_id, url, title, visited_at, visit_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, 1)
+         ON CONFLICT(profile_id, url) DO UPDATE SET
            visited_at = excluded.visited_at,
            visit_count = history.visit_count + 1,
            title = excluded.title",
-        params![id, target, clean_title, now_ms()],
+        params![id, profile, target, clean_title, now_ms()],
     )?;
     let entry = conn.query_row(
-        "SELECT id, url, title, visited_at, visit_count FROM history WHERE url = ?1",
-        params![target],
+        "SELECT id, url, title, visited_at, visit_count FROM history WHERE profile_id = ?1 AND url = ?2",
+        params![profile, target],
         row_to_history,
     )?;
     Ok(Some(entry))
@@ -172,7 +194,11 @@ pub fn add_history_entry(
 #[tauri::command]
 pub fn delete_history_entry(db: State<'_, DbState>, history_id: String) -> Result<bool, AppError> {
     let conn = db.conn();
-    let changed = conn.execute("DELETE FROM history WHERE id = ?1", params![history_id])?;
+    let profile = profile(&conn)?;
+    let changed = conn.execute(
+        "DELETE FROM history WHERE id = ?1 AND profile_id = ?2",
+        params![history_id, profile],
+    )?;
     Ok(changed > 0)
 }
 
@@ -200,10 +226,11 @@ pub fn save_note(
         return Err(AppError::InvalidInput("note content is required".into()));
     }
     let conn = db.conn();
+    let profile = profile(&conn)?;
     if let Some(id) = note_id {
         let changed = conn.execute(
-            "UPDATE notes SET content = ?1, updated_at = ?2 WHERE id = ?3",
-            params![clean, now_ms(), id],
+            "UPDATE notes SET content = ?1, updated_at = ?2 WHERE id = ?3 AND profile_id = ?4",
+            params![clean, now_ms(), id, profile],
         )?;
         if changed == 0 {
             return Err(AppError::NotFound("note not found".into()));
@@ -218,8 +245,9 @@ pub fn save_note(
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
     conn.execute(
-        "INSERT INTO notes (id, workspace_id, content, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
-        params![id, workspace_id, clean, now],
+        "INSERT INTO notes (id, profile_id, workspace_id, content, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![id, profile, workspace_id, clean, now],
     )?;
     let note = conn.query_row(
         "SELECT id, workspace_id, content, created_at, updated_at FROM notes WHERE id = ?1",
@@ -232,21 +260,23 @@ pub fn save_note(
 #[tauri::command]
 pub fn list_notes(db: State<'_, DbState>, workspace_id: Option<String>) -> Result<Vec<Note>, AppError> {
     let conn = db.conn();
+    let profile = profile(&conn)?;
     let mut stmt;
     let rows = match &workspace_id {
         Some(ws) => {
             stmt = conn.prepare(
                 "SELECT id, workspace_id, content, created_at, updated_at FROM notes
-                 WHERE workspace_id = ?1 OR workspace_id IS NULL
+                 WHERE profile_id = ?1 AND (workspace_id = ?2 OR workspace_id IS NULL)
                  ORDER BY updated_at DESC",
             )?;
-            stmt.query_map(params![ws], row_to_note)?.collect::<Result<Vec<_>, _>>()?
+            stmt.query_map(params![profile, ws], row_to_note)?.collect::<Result<Vec<_>, _>>()?
         }
         None => {
             stmt = conn.prepare(
-                "SELECT id, workspace_id, content, created_at, updated_at FROM notes ORDER BY updated_at DESC",
+                "SELECT id, workspace_id, content, created_at, updated_at FROM notes
+                 WHERE profile_id = ?1 ORDER BY updated_at DESC",
             )?;
-            stmt.query_map([], row_to_note)?.collect::<Result<Vec<_>, _>>()?
+            stmt.query_map(params![profile], row_to_note)?.collect::<Result<Vec<_>, _>>()?
         }
     };
     Ok(rows)
@@ -255,7 +285,11 @@ pub fn list_notes(db: State<'_, DbState>, workspace_id: Option<String>) -> Resul
 #[tauri::command]
 pub fn delete_note(db: State<'_, DbState>, note_id: String) -> Result<bool, AppError> {
     let conn = db.conn();
-    let changed = conn.execute("DELETE FROM notes WHERE id = ?1", params![note_id])?;
+    let profile = profile(&conn)?;
+    let changed = conn.execute(
+        "DELETE FROM notes WHERE id = ?1 AND profile_id = ?2",
+        params![note_id, profile],
+    )?;
     Ok(changed > 0)
 }
 
@@ -281,10 +315,11 @@ const DOWNLOAD_COLS: &str =
 #[tauri::command]
 pub fn list_downloads(db: State<'_, DbState>) -> Result<Vec<Download>, AppError> {
     let conn = db.conn();
+    let profile = profile(&conn)?;
     let mut stmt = conn.prepare(&format!(
-        "SELECT {DOWNLOAD_COLS} FROM downloads ORDER BY created_at DESC"
+        "SELECT {DOWNLOAD_COLS} FROM downloads WHERE profile_id = ?1 ORDER BY created_at DESC"
     ))?;
-    let rows = stmt.query_map([], row_to_download)?;
+    let rows = stmt.query_map(params![profile], row_to_download)?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
@@ -310,12 +345,13 @@ pub fn record_download(
         .map(|d| d.chars().take(1024).collect())
         .filter(|d: &String| !d.is_empty());
     let conn = db.conn();
+    let profile = profile(&conn)?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
     conn.execute(
-        "INSERT INTO downloads (id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 'completed', ?7, ?7)",
-        params![id, target, clean_name, clean_dest, clean_mime, total_bytes.unwrap_or(0), now],
+        "INSERT INTO downloads (id, profile_id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 'completed', ?8, ?8)",
+        params![id, profile, target, clean_name, clean_dest, clean_mime, total_bytes.unwrap_or(0), now],
     )?;
     let d = conn.query_row(
         &format!("SELECT {DOWNLOAD_COLS} FROM downloads WHERE id = ?1"),
@@ -328,7 +364,8 @@ pub fn record_download(
 #[tauri::command]
 pub fn clear_downloads(db: State<'_, DbState>) -> Result<i64, AppError> {
     let conn = db.conn();
-    let changed = conn.execute("DELETE FROM downloads", [])?;
+    let profile = profile(&conn)?;
+    let changed = conn.execute("DELETE FROM downloads WHERE profile_id = ?1", params![profile])?;
     Ok(changed as i64)
 }
 
@@ -336,7 +373,11 @@ pub fn clear_downloads(db: State<'_, DbState>) -> Result<i64, AppError> {
 #[tauri::command]
 pub fn remove_download(db: State<'_, DbState>, download_id: String) -> Result<bool, AppError> {
     let conn = db.conn();
-    let changed = conn.execute("DELETE FROM downloads WHERE id = ?1", params![download_id])?;
+    let profile = profile(&conn)?;
+    let changed = conn.execute(
+        "DELETE FROM downloads WHERE id = ?1 AND profile_id = ?2",
+        params![download_id, profile],
+    )?;
     Ok(changed > 0)
 }
 
@@ -357,10 +398,11 @@ const READING_COLS: &str = "id, url, title, snapshot_text, note, created_at";
 #[tauri::command]
 pub fn list_reading_items(db: State<'_, DbState>) -> Result<Vec<ReadingItem>, AppError> {
     let conn = db.conn();
+    let profile = profile(&conn)?;
     let mut stmt = conn.prepare(&format!(
-        "SELECT {READING_COLS} FROM reading_list ORDER BY created_at DESC"
+        "SELECT {READING_COLS} FROM reading_list WHERE profile_id = ?1 ORDER BY created_at DESC"
     ))?;
-    let rows = stmt.query_map([], row_to_reading)?;
+    let rows = stmt.query_map(params![profile], row_to_reading)?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
@@ -396,19 +438,20 @@ pub fn save_reading_item(
         .map(|s| s.chars().take(100_000).collect::<String>())
         .filter(|s| !s.trim().is_empty());
     let conn = db.conn();
+    let profile = profile(&conn)?;
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO reading_list (id, url, title, snapshot_text, note, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-         ON CONFLICT(url) DO UPDATE SET
+        "INSERT INTO reading_list (id, profile_id, url, title, snapshot_text, note, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(profile_id, url) DO UPDATE SET
            title = excluded.title,
            snapshot_text = COALESCE(excluded.snapshot_text, reading_list.snapshot_text),
            note = COALESCE(excluded.note, reading_list.note)",
-        params![id, target, clean_title, clean_snapshot, clean_note, now_ms()],
+        params![id, profile, target, clean_title, clean_snapshot, clean_note, now_ms()],
     )?;
     let item = conn.query_row(
-        &format!("SELECT {READING_COLS} FROM reading_list WHERE url = ?1"),
-        params![target],
+        &format!("SELECT {READING_COLS} FROM reading_list WHERE profile_id = ?1 AND url = ?2"),
+        params![profile, target],
         row_to_reading,
     )?;
     Ok(item)
@@ -417,13 +460,18 @@ pub fn save_reading_item(
 #[tauri::command]
 pub fn delete_reading_item(db: State<'_, DbState>, item_id: String) -> Result<bool, AppError> {
     let conn = db.conn();
-    let changed = conn.execute("DELETE FROM reading_list WHERE id = ?1", params![item_id])?;
+    let profile = profile(&conn)?;
+    let changed = conn.execute(
+        "DELETE FROM reading_list WHERE id = ?1 AND profile_id = ?2",
+        params![item_id, profile],
+    )?;
     Ok(changed > 0)
 }
 
 #[tauri::command]
 pub fn clear_reading_list(db: State<'_, DbState>) -> Result<i64, AppError> {
     let conn = db.conn();
-    let changed = conn.execute("DELETE FROM reading_list", [])?;
+    let profile = profile(&conn)?;
+    let changed = conn.execute("DELETE FROM reading_list WHERE profile_id = ?1", params![profile])?;
     Ok(changed as i64)
 }

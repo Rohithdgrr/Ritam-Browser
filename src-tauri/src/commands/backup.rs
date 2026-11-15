@@ -51,17 +51,24 @@ pub struct BackupImportSummary {
 fn collect_rows<T>(
     conn: &Connection,
     sql: &str,
+    params: &[&dyn rusqlite::ToSql],
     mut map: impl FnMut(&Row<'_>) -> rusqlite::Result<T>,
 ) -> Result<Vec<T>, AppError> {
     let mut statement = conn.prepare(sql)?;
-    let rows = statement.query_map([], |row| map(row))?;
+    let rows = statement.query_map(params, |row| map(row))?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+/// A backup holds exactly one profile's data — the one the user is on. Other
+/// profiles are never written into the archive.
 fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
+    let profile = crate::commands::profiles::resolve_active_profile(conn)
+        .ok_or_else(|| AppError::InvalidInput("no active profile".into()))?;
+    let scope: &[&dyn rusqlite::ToSql] = &[&profile];
     let workspaces = collect_rows(
         conn,
-        "SELECT id, name, color, sort_order, created_at FROM workspaces",
+        "SELECT id, name, color, sort_order, created_at FROM workspaces WHERE profile_id = ?1",
+        scope,
         |r| {
             Ok(Workspace {
                 id: r.get(0)?,
@@ -74,7 +81,9 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
     )?;
     let tabs = collect_rows(
         conn,
-        "SELECT id, workspace_id, url, title, favicon_url, is_pinned, group_name, sort_order, created_at, last_active_at FROM tabs",
+        "SELECT id, workspace_id, url, title, favicon_url, is_pinned, group_name, sort_order, created_at, last_active_at
+         FROM tabs WHERE workspace_id IN (SELECT id FROM workspaces WHERE profile_id = ?1)",
+        scope,
         |r| {
             Ok(Tab {
                 id: r.get(0)?,
@@ -92,7 +101,8 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
     )?;
     let bookmarks = collect_rows(
         conn,
-        "SELECT id, title, url, is_favorite, sort_order, created_at FROM bookmarks",
+        "SELECT id, title, url, is_favorite, sort_order, created_at FROM bookmarks WHERE profile_id = ?1",
+        scope,
         |r| {
             Ok(Bookmark {
                 id: r.get(0)?,
@@ -106,7 +116,8 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
     )?;
     let history = collect_rows(
         conn,
-        "SELECT id, url, title, visited_at, visit_count FROM history",
+        "SELECT id, url, title, visited_at, visit_count FROM history WHERE profile_id = ?1",
+        scope,
         |r| {
             Ok(HistoryEntry {
                 id: r.get(0)?,
@@ -119,7 +130,8 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
     )?;
     let notes = collect_rows(
         conn,
-        "SELECT id, workspace_id, content, created_at, updated_at FROM notes",
+        "SELECT id, workspace_id, content, created_at, updated_at FROM notes WHERE profile_id = ?1",
+        scope,
         |r| {
             Ok(Note {
                 id: r.get(0)?,
@@ -132,7 +144,9 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
     )?;
     let downloads = collect_rows(
         conn,
-        "SELECT id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at FROM downloads",
+        "SELECT id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at
+         FROM downloads WHERE profile_id = ?1",
+        scope,
         |r| {
             Ok(Download {
                 id: r.get(0)?,
@@ -150,7 +164,8 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
     )?;
     let reading_list = collect_rows(
         conn,
-        "SELECT id, url, title, snapshot_text, note, created_at FROM reading_list",
+        "SELECT id, url, title, snapshot_text, note, created_at FROM reading_list WHERE profile_id = ?1",
+        scope,
         |r| {
             Ok(ReadingItem {
                 id: r.get(0)?,
@@ -164,7 +179,8 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
     )?;
     let site_permissions = collect_rows(
         conn,
-        "SELECT id, origin, permission, decision, updated_at FROM site_permissions",
+        "SELECT id, origin, permission, decision, updated_at FROM site_permissions WHERE profile_id = ?1",
+        scope,
         |r| {
             Ok(SitePermission {
                 id: r.get(0)?,
@@ -176,8 +192,8 @@ fn read_snapshot(conn: &Connection) -> Result<BrowserBackup, AppError> {
         },
     )?;
     let settings = {
-        let mut statement = conn.prepare("SELECT key, value FROM settings")?;
-        let rows = statement.query_map([], |row| {
+        let mut statement = conn.prepare("SELECT key, value FROM settings WHERE profile_id = ?1")?;
+        let rows = statement.query_map(scope, |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         rows.collect::<Result<HashMap<_, _>, _>>()?
@@ -409,6 +425,8 @@ fn merge_snapshot(
     backup: BrowserBackup,
 ) -> Result<BackupImportSummary, AppError> {
     validate_snapshot(conn, &backup)?;
+    let profile = crate::commands::profiles::resolve_active_profile(conn)
+        .ok_or_else(|| AppError::InvalidInput("no active profile".into()))?;
     let tx = conn.transaction()?;
     let mut summary = BackupImportSummary {
         workspaces: 0,
@@ -424,8 +442,8 @@ fn merge_snapshot(
 
     for row in &backup.workspaces {
         summary.workspaces += tx.execute(
-            "INSERT OR IGNORE INTO workspaces (id, name, color, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![row.id, row.name, row.color, row.sort_order, row.created_at],
+            "INSERT OR IGNORE INTO workspaces (id, name, color, sort_order, created_at, profile_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![row.id, row.name, row.color, row.sort_order, row.created_at, profile],
         )?;
     }
     for row in &backup.tabs {
@@ -437,50 +455,50 @@ fn merge_snapshot(
     }
     for row in &backup.bookmarks {
         summary.bookmarks += tx.execute(
-            "INSERT OR IGNORE INTO bookmarks (id, title, url, is_favorite, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![row.id, row.title, row.url, row.is_favorite, row.sort_order, row.created_at],
+            "INSERT OR IGNORE INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![row.id, profile, row.title, row.url, row.is_favorite, row.sort_order, row.created_at],
         )?;
     }
     for row in &backup.history {
         summary.history += tx.execute(
-            "INSERT OR IGNORE INTO history (id, url, title, visited_at, visit_count) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(url) DO UPDATE SET
+            "INSERT OR IGNORE INTO history (id, profile_id, url, title, visited_at, visit_count) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(profile_id, url) DO UPDATE SET
                title = CASE WHEN excluded.visited_at > history.visited_at THEN excluded.title ELSE history.title END,
                visited_at = MAX(history.visited_at, excluded.visited_at),
                visit_count = MAX(history.visit_count, excluded.visit_count)
              WHERE excluded.visited_at > history.visited_at OR excluded.visit_count > history.visit_count",
-            params![row.id, row.url, row.title, row.visited_at, row.visit_count],
+            params![row.id, profile, row.url, row.title, row.visited_at, row.visit_count],
         )?;
     }
     for row in &backup.notes {
         summary.notes += tx.execute(
-            "INSERT OR IGNORE INTO notes (id, workspace_id, content, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![row.id, row.workspace_id, row.content, row.created_at, row.updated_at],
+            "INSERT OR IGNORE INTO notes (id, profile_id, workspace_id, content, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![row.id, profile, row.workspace_id, row.content, row.created_at, row.updated_at],
         )?;
     }
     for row in &backup.downloads {
         summary.downloads += tx.execute(
-            "INSERT OR IGNORE INTO downloads (id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![row.id, row.url, row.filename, row.destination, row.mime_type, row.total_bytes, row.received_bytes, row.status, row.created_at, row.completed_at],
+            "INSERT OR IGNORE INTO downloads (id, profile_id, url, filename, destination, mime_type, total_bytes, received_bytes, status, created_at, completed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![row.id, profile, row.url, row.filename, row.destination, row.mime_type, row.total_bytes, row.received_bytes, row.status, row.created_at, row.completed_at],
         )?;
     }
     for row in &backup.reading_list {
         summary.reading_list += tx.execute(
-            "INSERT OR IGNORE INTO reading_list (id, url, title, snapshot_text, note, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![row.id, row.url, row.title, row.snapshot_text, row.note, row.created_at],
+            "INSERT OR IGNORE INTO reading_list (id, profile_id, url, title, snapshot_text, note, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![row.id, profile, row.url, row.title, row.snapshot_text, row.note, row.created_at],
         )?;
     }
     for row in &backup.site_permissions {
         summary.site_permissions += tx.execute(
-            "INSERT OR IGNORE INTO site_permissions (id, origin, permission, decision, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![row.id, row.origin, row.permission, row.decision, row.updated_at],
+            "INSERT OR IGNORE INTO site_permissions (id, profile_id, origin, permission, decision, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![row.id, profile, row.origin, row.permission, row.decision, row.updated_at],
         )?;
     }
     for (key, value) in &backup.settings {
         summary.settings += tx.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?1, ?2)",
-            params![key, value],
+            "INSERT OR IGNORE INTO settings (profile_id, key, value) VALUES (?1, ?2, ?3)",
+            params![profile, key, value],
         )?;
     }
     tx.commit()?;
@@ -606,6 +624,8 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(include_str!("../../migrations/0001_init.sql"))
             .unwrap();
+        crate::db::apply_profile_scope(&conn, None).unwrap();
+        crate::commands::profiles::ensure_default_profile(&conn).unwrap();
         conn
     }
 
@@ -692,15 +712,16 @@ mod tests {
     #[test]
     fn existing_bookmark_wins_url_conflicts() {
         let mut conn = test_connection();
+        let profile = crate::commands::profiles::resolve_active_profile(&conn).unwrap();
         conn.execute(
-            "INSERT INTO workspaces (id, name, color, sort_order, created_at) VALUES ('ws-1', 'Local', '#4A6B5D', 0, 1)",
-            [],
+            "INSERT INTO workspaces (id, name, color, sort_order, created_at, profile_id) VALUES ('ws-1', 'Local', '#4A6B5D', 0, 1, ?1)",
+            [&profile],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO bookmarks (id, title, url, is_favorite, sort_order, created_at)
-             VALUES ('local-bookmark', 'Keep this title', 'https://example.com', 0, 0, 1)",
-            [],
+            "INSERT INTO bookmarks (id, profile_id, title, url, is_favorite, sort_order, created_at)
+             VALUES ('local-bookmark', ?1, 'Keep this title', 'https://example.com', 0, 0, 1)",
+            [&profile],
         )
         .unwrap();
         let summary = merge_snapshot(&mut conn, sample()).unwrap();

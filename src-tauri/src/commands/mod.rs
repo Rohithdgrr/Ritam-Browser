@@ -1,6 +1,8 @@
+pub mod autofill;
 pub mod backup;
 pub mod bookmarks_io;
 pub mod data;
+pub mod import;
 pub mod menu;
 pub mod profiles;
 pub mod settings;

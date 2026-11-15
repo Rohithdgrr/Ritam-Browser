@@ -83,8 +83,12 @@ This document provides a comprehensive inventory of all features planned for Rit
 |---------|-------------|--------|
 | **Local Profiles** | Name, optional Gmail-style label, color | ✅ Complete |
 | **Profile Switcher** | Chrome-style chip and dropdown in toolbar | ✅ Complete |
-| **Profile Isolation** | Separate workspaces and tabs per profile | ✅ Complete |
+| **Profile Isolation** | Workspaces, tabs, bookmarks, history, reading list, notes, downloads, site permissions, settings and auto-fill data scoped by `profile_id`; each profile also gets its own engine data folder | ✅ Complete |
 | **Inline Profile Creation** | Create profiles without leaving the UI | ✅ Complete |
+| **Profiles Page** | `govind://profiles`: rename, set default, switch, delete (with its data) | ✅ Complete |
+| **Browser Import** | Bookmarks and history from Chrome, Edge, Brave, Firefox (Safari on macOS); source opened read-only from a temp copy and never written; partial imports reported per category | ✅ Complete |
+| **Password Import** | Never attempted: source stores are encrypted — reported as skipped in the import result | ⏭️ Skipped |
+| **Profile Sync** | No account service exists to sync through | ⏭️ Skipped |
 
 ### 6. Reading & Accessibility
 
@@ -111,9 +115,12 @@ This document provides a comprehensive inventory of all features planned for Rit
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Form Autofill** | Names, addresses, payment cards (Settings → Autofill) | ✅ Complete |
+| **Form Autofill** | Names, emails, phones and addresses per profile (`govind://autofill`) | ✅ Complete |
+| **Fill On Request** | Ctrl+Shift+L pushes this profile's entries into the focused tab only; the page script discards a payload whose origin differs from the tab URL Rust read | ✅ Complete |
 | **Password Generator** | 24-character secure password generation on click | ✅ Complete |
-| **Autofill Profiles** | Stored locally, never synced | ✅ Complete |
+| **Autofill Storage** | `autofill.json` in the profile folder, 0600 on Unix, **not encrypted** — stated in the UI | ✅ Complete |
+| **Payment Card Autofill** | Card number fields are no longer recognised or stored | ⏭️ Skipped |
+| **Password Manager** | Needs an encrypted vault; not built | ⏭️ Skipped |
 
 ### 9. Data Management
 
@@ -206,7 +213,7 @@ This document provides a comprehensive inventory of all features planned for Rit
 | Feature | Limitation | Status |
 |---------|------------|--------|
 | **Tab Cookie/Identity** | Regular tabs share one WebView2 profile | 🟡 Partial |
-| **Profile Data Sharing** | Profiles separate workspaces but share cookie jar, bookmarks, history | 🟡 Partial |
+| **Profile Data Sharing** | Bookmarks, history and site data are now per profile; hovering between profiles needs a full reload of the shell | 🟡 Partial |
 
 **Note:** Private tabs use WebView2 InPrivate storage with full isolation. Regular tabs share storage within a profile.
 
