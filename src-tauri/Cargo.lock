@@ -1591,30 +1591,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "govind-browser"
-version = "0.1.0"
-dependencies = [
- "adblock",
- "base64 0.22.1",
- "log",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-log",
- "tauri-plugin-shell",
- "tauri-plugin-single-instance",
- "thiserror 2.0.21",
- "uuid",
- "webview2-com",
- "windows",
-]
-
-[[package]]
 name = "gtk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3466,6 +3442,30 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "ritam-browser"
+version = "0.1.0"
+dependencies = [
+ "adblock",
+ "base64 0.22.1",
+ "log",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-log",
+ "tauri-plugin-shell",
+ "tauri-plugin-single-instance",
+ "thiserror 2.0.21",
+ "uuid",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]

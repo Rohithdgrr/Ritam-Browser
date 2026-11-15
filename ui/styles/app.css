@@ -1210,3 +1210,8 @@ body.guest-mode .omnibar:focus-within { box-shadow: 0 0 0 3px var(--zen-private-
   .home-search button { padding-inline: 12px; }
 }
 
+/* Mobile app shells (Android/iOS): the OS owns the window chrome, so the
+   custom min/max/close controls and drag regions are hidden entirely. */
+.is-mobile-shell .window-controls { display: none; }
+.is-mobile-shell .titlebar-brand { padding-left: 12px; }
+

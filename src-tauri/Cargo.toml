@@ -1,14 +1,14 @@
 [package]
-name = "govind-browser"
+name = "ritam-browser"
 version = "0.1.0"
-description = "Govind Browser — a fast, calm, local-first browser (milestone 1: browser shell)"
-authors = ["Govind Browser contributors"]
+description = "Ritam Browser — a fast, calm, local-first browser (milestone 1: browser shell)"
+authors = ["Ritam Browser contributors"]
 license = "MIT"
 edition = "2021"
 
 [lib]
 # The `_lib` suffix keeps the library name distinct from the binary on Windows.
-name = "govind_browser_lib"
+name = "ritam_browser_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

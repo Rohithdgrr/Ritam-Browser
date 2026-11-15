@@ -9,6 +9,7 @@ mod webview;
 mod webview2_blocker;
 
 use tauri::{Emitter, Manager, WindowEvent};
+#[cfg(desktop)]
 use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, GlobalShortcutExt, ShortcutState};
 use rusqlite::OptionalExtension;
 
@@ -17,6 +18,7 @@ use webview::TabWebviewManager;
 /// Browser shortcuts that must work even while a *page* has the keyboard focus
 /// (a child webview swallows key events, so the shell never sees them).
 /// The handler only acts while the Ritam window is focused.
+#[cfg(desktop)]
 const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+T", "new-tab"),
     ("Ctrl+Shift+N", "new-private-tab"),
@@ -50,6 +52,7 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("Alt+Right", "forward"),
 ];
 
+#[cfg(desktop)]
 fn main_window_focused(app: &tauri::AppHandle) -> bool {
     // The raw `Window` is used on purpose: `get_webview_window` returns `None`
     // once the window hosts child webviews (the tab views).
@@ -58,6 +61,7 @@ fn main_window_focused(app: &tauri::AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(desktop)]
 fn register_shortcuts(app: &tauri::AppHandle) {
     let manager = app.global_shortcut();
     // Idempotent: drop any previous registration before (re-)adding them.
@@ -69,9 +73,16 @@ fn register_shortcuts(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(not(desktop))]
+fn register_shortcuts(_app: &tauri::AppHandle) {}
+
+#[cfg(desktop)]
 fn unregister_shortcuts(app: &tauri::AppHandle) {
     let _ = app.global_shortcut().unregister_all();
 }
+
+#[cfg(not(desktop))]
+fn unregister_shortcuts(_app: &tauri::AppHandle) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -86,15 +97,20 @@ pub fn run() {
         );
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_log::Builder::new().build())
+        .plugin(tauri_plugin_shell::init())
+        // Native open/save dialogs for bookmark import/export.
+        .plugin(tauri_plugin_dialog::init());
+
+    // Single-instance enforcement and global keyboard shortcuts are desktop
+    // concepts — neither plugin API exists on Android/iOS.
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {
             // Second launch: focus the existing window instead of opening a new one.
             // (State access here is intentionally minimal.)
         }))
-        .plugin(tauri_plugin_log::Builder::new().build())
-        .plugin(tauri_plugin_shell::init())
-        // Native open/save dialogs for bookmark import/export.
-        .plugin(tauri_plugin_dialog::init())
         .plugin(
             ShortcutBuilder::new()
                 .with_handler(|app, shortcut, event| {
@@ -113,9 +129,12 @@ pub fn run() {
                     }
                 })
                 .build(),
-        )
+        );
+
+    builder
         .manage(TabWebviewManager::new())
         .setup(|app| {
+            #[cfg(desktop)]
             app.on_menu_event(|app, event| {
                 let id = event.id().as_ref();
                 if id.starts_with("menu-") {

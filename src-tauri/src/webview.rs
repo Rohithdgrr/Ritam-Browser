@@ -916,6 +916,7 @@ impl TabWebviewManager {
   }
 
   /// Show the active tab's webview over the web region; hide the others.
+  #[cfg(desktop)]
   pub fn apply(&self) {
     let layout = self.layout();
     // Clone the handles first so the lock is not held across runtime calls.
@@ -936,6 +937,10 @@ impl TabWebviewManager {
       }
     }
   }
+
+  /// Mobile has no child-webview API — there is nothing to lay out.
+  #[cfg(not(desktop))]
+  pub fn apply(&self) {}
 
   /// Navigate a tab.
   ///
@@ -975,6 +980,7 @@ impl TabWebviewManager {
   ///
   /// Runs on Tauri's async runtime (the caller is an `async` command) — on
   /// Windows this *must* not happen on the UI thread.
+  #[cfg(desktop)]
   async fn create_view(
     &self,
     app: &AppHandle,
@@ -1192,6 +1198,20 @@ impl TabWebviewManager {
     Ok(())
   }
 
+  /// Mobile fallback: Tauri does not expose child webviews on Android/iOS, so
+  /// embedded tab pages cannot be created there yet.
+  #[cfg(not(desktop))]
+  async fn create_view(
+    &self,
+    _app: &AppHandle,
+    _tab_id: &str,
+    _url: Url,
+  ) -> Result<(), AppError> {
+    Err(AppError::Window(
+      "embedded tab webviews are not supported on mobile yet".into(),
+    ))
+  }
+
   #[cfg(windows)]
   fn install_network_blocker(
     webview: &Webview,
@@ -1216,10 +1236,20 @@ impl TabWebviewManager {
       .map_err(|error| AppError::Window(format!("install network blocker: {error}")))
   }
 
+  #[cfg(desktop)]
+  fn close_webview(webview: Webview) {
+    let _ = webview.close();
+  }
+
+  /// Mobile webviews have no `close()` — dropping the handle is enough (and
+  /// the map is always empty there anyway).
+  #[cfg(not(desktop))]
+  fn close_webview(_webview: Webview) {}
+
   /// Destroy a tab's webview (tab closed, or the tab returned to the home page).
   pub fn close_view(&self, tab_id: &str) {
     if let Some(webview) = self.webviews().remove(tab_id) {
-      let _ = webview.close();
+      Self::close_webview(webview);
     }
   }
 
@@ -1236,7 +1266,7 @@ impl TabWebviewManager {
   pub fn close_all(&self) {
     let drained: Vec<Webview> = self.webviews().drain().map(|(_, w)| w).collect();
     for webview in drained {
-      let _ = webview.close();
+      Self::close_webview(webview);
     }
     self.private_tabs.lock().unwrap_or_else(|e| e.into_inner()).clear();
     self.muted_tabs.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -1438,7 +1468,10 @@ impl TabWebviewManager {
   /// Print the page of a tab (not the shell chrome).
   pub fn print_tab(&self, tab_id: &str) {
     if let Some(webview) = self.webviews().get(tab_id) {
+      #[cfg(desktop)]
       let _ = webview.print();
+      #[cfg(not(desktop))]
+      let _ = webview;
     }
   }
 

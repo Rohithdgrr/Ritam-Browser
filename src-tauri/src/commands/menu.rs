@@ -1,8 +1,18 @@
+#[cfg(not(desktop))]
+use tauri::AppHandle;
+#[cfg(desktop)]
 use tauri::{
     menu::{ContextMenu, MenuBuilder},
     AppHandle, LogicalPosition, Manager,
 };
 
+#[cfg(not(desktop))]
+#[tauri::command]
+pub fn show_more_menu(_app: AppHandle, _x: f64, _y: f64) -> Result<(), String> {
+    Err("native context menus are not supported on this platform".to_string())
+}
+
+#[cfg(desktop)]
 #[tauri::command]
 pub fn show_more_menu(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
     let window = app

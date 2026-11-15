@@ -52,9 +52,71 @@ jobs:
           path: ${{ matrix.artifacts }}
           if-no-files-found: error
 
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;36.0.0" "ndk;27.2.12479018"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Configure Android signing
+        working-directory: src-tauri/gen/android
+        run: |
+          set -e
+          if [ -n "${{ secrets.ANDROID_KEY_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEY_BASE64 }}" | base64 -d > "$RUNNER_TEMP/ritam-upload-keystore.jks"
+            {
+              echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}"
+              echo "storePassword=${{ secrets.ANDROID_KEY_PASSWORD }}"
+              echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}"
+              echo "storeFile=$RUNNER_TEMP/ritam-upload-keystore.jks"
+            } > keystore.properties
+          else
+            # No signing secrets configured: generate an ephemeral CI key so the
+            # APK is installable. Add ANDROID_KEY_BASE64 / _ALIAS / _PASSWORD
+            # secrets to keep a stable signing identity across releases.
+            keytool -genkeypair -v -keystore "$RUNNER_TEMP/ritam-upload-keystore.jks" \
+              -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 \
+              -alias upload -storepass ritam-ci -keypass ritam-ci \
+              -dname "CN=Ritam Browser"
+            {
+              echo "keyAlias=upload"
+              echo "storePassword=ritam-ci"
+              echo "keyPassword=ritam-ci"
+              echo "storeFile=$RUNNER_TEMP/ritam-upload-keystore.jks"
+            } > keystore.properties
+          fi
+      - name: Build release APK
+        run: npx tauri android build --apk
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ritam-browser-android
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub release
-    needs: [desktop]
+    needs: [desktop, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

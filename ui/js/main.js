@@ -565,6 +565,11 @@ async function jumpToTab(position) {
 
 // ── Bootstrap ─────────────────────────────────────────────────────────
 async function boot() {
+  // Mobile shells (Android APK) have no window chrome to drag or minimize.
+  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    document.documentElement.classList.add('is-mobile-shell');
+  }
+
   api.onPreviewNotice((msg) => toast(msg));
 
   await initStore();

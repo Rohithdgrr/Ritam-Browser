@@ -5,4 +5,4 @@ dist/
 .DS_Store
 .vscode/
 .idea/
-src-tauri/gen/
+src-tauri/gen/schemas/
