@@ -25,11 +25,11 @@ translation server only when you explicitly translate a page.
 | **Search from the address bar** | ✅ Built-in engines + custom engine URL template |
 | **Internal pages** `govind://history`, `/downloads`, `/bookmarks`, `/settings` | ✅ Working (full-screen, chrome:// style) |
 | Page titles from the live page, live omnibar URL, zoom, print | ✅ Working |
-| Find in page (Ctrl+F), fullscreen (F11), per-domain zoom memory | ✅ Working |
+| Find in page (Ctrl+F) with match count, fullscreen (F11), per-domain zoom memory | ✅ Working (the count needs the Windows/WebView2 message channel) |
 | Reading list with offline text snapshots (`govind://reading-list`) | ✅ Working |
 | Tab search / quick switcher (Ctrl+Shift+A) | ✅ Working |
 | New-tab shortcut tiles (bookmark favorites) and custom search URL template | ✅ Working |
-| Picture-in-Picture (Alt+Shift+P), per-tab audio mute + speaker indicators (Alt+Shift+M) | ✅ Working |
+| Picture-in-Picture (Alt+Shift+P), per-tab audio mute + speaker indicators (Alt+Shift+M) | ✅ Working (mute is remembered per site across restarts) |
 | In-app media controls across loaded tabs (top-level audio/video, including private tabs) | ✅ Working |
 | Forced dark mode for websites (Alt+Shift+D), page translation through a configured LibreTranslate endpoint (Alt+Shift+T) | ✅ Working |
 | Read Aloud with current-word highlighting (Alt+Shift+R) | ✅ Working |
@@ -45,10 +45,10 @@ translation server only when you explicitly translate a page.
 | Page DevTools (Inspect page), auto-play blocking | ✅ Working |
 | PDF viewing | ✅ Handled natively by the system WebView |
 | Reader mode, persistent named/collapsible tab groups | ✅ Working |
-| Recently closed tabs / undo close (Ctrl+Shift+T) | ✅ Working for this app session |
+| Recently closed tabs / undo close (Ctrl+Shift+T) | ✅ Working, persisted across restarts (last 20, never private tabs) |
 | Private tabs (Ctrl+Shift+N) | ✅ Incognito webviews; not saved in history or the tab database |
 | Protocol Lab | ⏭️ Skipped per product decision (was in milestone 1 scope) |
-| Split view, finds-in-page match counts, tab sleeping, download resume | ❌ Not in this milestone |
+| Split view, tab sleeping, download resume | ❌ Not in this milestone |
 | Media casting, Web Share integration, site push notifications, device emulation | ❌ Not supported by the current WebView2 integration |
 | Per-tab identity/cookie isolation, CDP access, extension support | ❌ Needs a Chromium engine (PRD §31) |
 
@@ -85,11 +85,11 @@ Known limitations (each tracked in `docs/ENGINE_SPIKE.md`):
    bodies, and does not provide Chrome DevTools Protocol features.
 7. Reader mode extracts text from common article/main elements; it is a
    lightweight reader view, not a full readability parser. Recently closed
-   entries are held in memory for the current app session only.
+   entries persist in the local database (last 20, private tabs excluded).
 8. Forced dark mode uses a CSS filter on pages that appear light; some sites
-   may render oddly. Tab mute state lasts for the current app session and
-   covers page media and Web Audio contexts, but may not control cross-origin
-   frames.
+   may render oddly. Tab mute state is remembered per site for future visits
+   and covers page media and Web Audio contexts, but may not control
+   cross-origin frames.
 9. Translation requires a configured LibreTranslate-compatible server. The
    app sends extracted text only after you start translation; remote endpoints
    require HTTPS and receive the page text. Translation is shown in a simple
@@ -116,6 +116,14 @@ origin-, and policy-dependent; Govind does not emulate Chrome or promise
 feature parity for them.
 Test those APIs against the supported WebView2 runtime instead of treating
 them as app-owned browser features.
+
+Some items are not app features at all but engine components that WebView2 does
+not expose to its host, so they cannot be added without replacing the engine
+with a full Chromium/CEF build: CDP-driven request mocking and device emulation,
+per-tab cookie/identity isolation, Chromecast/Media Router, Web Push, the
+accessibility inspector tree, and bfcache control. Others need a provider or
+platform service Govind does not ship: cross-device sync, neural TTS voices,
+cloud PDF storage, offline translation, and system-level (SMTC) media controls.
 
 The current shell does not expose browser-engine controls for DoH, process/site
 isolation policy, bfcache, automatic tab freezing/discard, CDP network mocking,
@@ -168,7 +176,7 @@ govind-browser/
 │   ├── migrations/         #   0001_init.sql (WAL, foreign keys, indexes)
 │   ├── filter-assets/      #   offline filter lists + uBlock scriptlet resources
 │   └── capabilities/       #   least-privilege: window controls + shell open only
-├── tests/                  # node:test unit tests — 48 across 9 files, no npm deps
+├── tests/                  # node:test unit tests — 53 across 10 files, no npm deps
 ├── tools/serve.mjs         # zero-dep static server for UI preview
 ├── tools/build-filter-assets.mjs  # regenerates src-tauri/filter-assets/
 └── docs/                   # PRD, engine spike, ADR-006/ADR-007
@@ -206,7 +214,7 @@ Type one into the address bar or use the sidebar / the ⋮ menu.
 
 ```bash
 node tools/serve.mjs        # → http://localhost:8081
-npm test                    # 48 unit tests
+npm test                    # 53 unit tests
 ```
 
 In the browser preview, pages load in an `<iframe>` (sites that forbid framing
@@ -234,7 +242,7 @@ build-essential pkg-config libssl-dev` and `npm run tauri:build` works there too
 
 ```bash
 cd src-tauri
-cargo test                  # 32 tests: URL validation and IPC data commands,
+cargo test                  # 33 tests: URL validation and IPC data commands,
                             #   plus the bundled filter lists and real ad hosts
 cargo check
 ```
@@ -245,6 +253,30 @@ cosmetic rules and scriptlets, and that ordinary first-party requests pass.
 The UI side is covered by `npm test` (pure modules) — the command surface itself
 is verified by `ui/js/services/fallback-db.js` implementing every command the
 shell invokes.
+
+### Driving the real app over CDP
+
+WebView2 exposes Chrome DevTools Protocol when it is started with a debug port,
+which makes end-to-end checks possible without any test harness inside the app:
+
+```bash
+cd src-tauri
+WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223" \
+  ./target/debug/govind-browser.exe
+# http://127.0.0.1:9223/json/list lists the shell (http://tauri.localhost/) and
+# every open tab as separate page targets.
+```
+
+The debug port is off unless that variable is set. Keep it off for normal use:
+anything that can reach the port can script every page.
+
+This is how the find-in-page match counter, the persisted recently-closed list
+and per-site mute were verified: search a page with a known number of
+occurrences (`1 / 8`, advancing to `2 / 8`, `3 / 8`), close a tab and confirm the
+entry lands in `settings.recently_closed`, mute a site and confirm
+`settings.muted_sites` holds its hostname, then restart and confirm the count
+resets to `1 / 8`, the closed tab is still listed, and the site comes back
+muted.
 
 ## IPC security model
 

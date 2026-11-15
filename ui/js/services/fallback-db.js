@@ -36,6 +36,8 @@ const KNOWN_SETTINGS = {
   content_blocking: { type: 'bool' },
   cosmetic_filters: { type: 'filters' },
   autofill_profiles: { type: 'profiles' },
+  recently_closed: { type: 'closed-tabs' },
+  muted_sites: { type: 'host-list' },
 };
 
 const DEFAULT_SETTINGS = {
@@ -555,6 +557,23 @@ export function createFallbackDb(storage) {
           if (!Array.isArray(parsed) || parsed.length > 50 || v.length > 100000) throw new Error('bad');
         } catch {
           throw new Error('autofill profiles must be a JSON array of at most 50 entries');
+        }
+      }
+      if (spec.type === 'closed-tabs') {
+        try {
+          const parsed = JSON.parse(v);
+          if (!Array.isArray(parsed) || parsed.length > 20 || v.length > 200000) throw new Error('bad');
+        } catch {
+          throw new Error('recently closed tabs must be a JSON array of at most 20 entries');
+        }
+      }
+      if (spec.type === 'host-list') {
+        try {
+          const parsed = JSON.parse(v);
+          if (!Array.isArray(parsed) || parsed.length > 200 || v.length > 20000) throw new Error('bad');
+          if (!parsed.every((host) => typeof host === 'string' && host.length <= 253 && /^[A-Za-z0-9.-]+$/.test(host))) throw new Error('bad');
+        } catch {
+          throw new Error('muted sites must be a JSON array of hostnames');
         }
       }
       const db = load();

@@ -718,8 +718,28 @@ const CLEAR_SITE_DATA_JS: &str = r#"
 /// Find-in-page script. Placeholders: __QUERY__ (a JSON string literal) and
 /// __FORWARD__ (true/false). Keeps match state in `window.__govindFind` so
 /// repeated calls cycle through the matches.
+#[cfg(test)]
+mod find_tests {
+  use super::FIND_IN_PAGE_JS;
+
+  #[test]
+  fn find_script_reports_match_counts() {
+    // The shell relies on this message to show "3 / 17" in the find bar.
+    assert!(FIND_IN_PAGE_JS.contains("govind-find"));
+    assert!(FIND_IN_PAGE_JS.contains("report(state.idx + 1, matches.length)"));
+    assert!(FIND_IN_PAGE_JS.contains("report(0, 0)"));
+  }
+}
+
 const FIND_IN_PAGE_JS: &str = r#"
 (function (q, forward) {
+  function report(index, total) {
+    try {
+      if (window.chrome && chrome.webview && chrome.webview.postMessage) {
+        chrome.webview.postMessage(JSON.stringify({ type: 'govind-find', index: index, total: total }));
+      }
+    } catch (e) { }
+  }
   var out = [];
   var walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, {
     acceptNode: function (n) {
@@ -732,12 +752,13 @@ const FIND_IN_PAGE_JS: &str = r#"
   var lower = hay.toLowerCase(), needle = q.toLowerCase(), matches = [];
   var at = lower.indexOf(needle);
   while (at !== -1) { matches.push(at); at = lower.indexOf(needle, at + needle.length); }
-  if (!matches.length) { window.__govindFind = null; return false; }
+  if (!matches.length) { window.__govindFind = null; report(0, 0); return false; }
   var state = window.__govindFind || { idx: -1 };
   state.idx = forward
     ? (state.idx + 1) % matches.length
     : (state.idx <= 0 ? matches.length - 1 : state.idx - 1);
   window.__govindFind = state;
+  report(state.idx + 1, matches.length);
   var pos = matches[state.idx];
   var lo = 0, hi = starts.length - 1;
   while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (starts[mid] <= pos) lo = mid; else hi = mid - 1; }
@@ -1152,7 +1173,9 @@ impl TabWebviewManager {
 
     #[cfg(windows)]
     {
-      if let Err(error) = Self::install_network_blocker(&webview, self.network_blocker.clone()) {
+      if let Err(error) =
+        Self::install_network_blocker(&webview, self.network_blocker.clone(), tab_id.to_string())
+      {
         let _ = webview.close();
         return Err(error);
       }
@@ -1170,13 +1193,18 @@ impl TabWebviewManager {
   }
 
   #[cfg(windows)]
-  fn install_network_blocker(webview: &Webview, blocker: NetworkBlocker) -> Result<(), AppError> {
+  fn install_network_blocker(
+    webview: &Webview,
+    blocker: NetworkBlocker,
+    tab_id: String,
+  ) -> Result<(), AppError> {
     use std::sync::mpsc;
 
+    let app = webview.app_handle().clone();
     let (sender, receiver) = mpsc::channel();
     webview
       .with_webview(move |platform| {
-        let result = unsafe { crate::webview2_blocker::register(platform, blocker) }
+        let result = unsafe { crate::webview2_blocker::register(platform, blocker, app, tab_id) }
           .map_err(|error| error.to_string());
         let _ = sender.send(result);
       })
@@ -1229,7 +1257,7 @@ impl TabWebviewManager {
   pub fn find_tab(&self, tab_id: &str, query: &str, forward: bool) {
     if let Some(webview) = self.webviews().get(tab_id) {
       let js = if query.is_empty() {
-        "(function(){var s=window.getSelection();s&&s.removeAllRanges();window.__govindFind=null;return true;})();".to_string()
+        "(function(){var s=window.getSelection();s&&s.removeAllRanges();window.__govindFind=null;try{if(window.chrome&&chrome.webview&&chrome.webview.postMessage){chrome.webview.postMessage(JSON.stringify({type:'govind-find',index:0,total:0}));}}catch(e){}return true;})();".to_string()
       } else {
         let escaped = serde_json::to_string(query).unwrap_or_else(|_| "\"\"".into());
         FIND_IN_PAGE_JS

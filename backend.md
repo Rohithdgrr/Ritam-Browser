@@ -60,6 +60,12 @@ application's tab, history, or download records. This does not make a private
 session invisible to websites, network providers, or operating-system
 monitoring. Regular tabs share the default webview profile.
 
+Small pieces of session state live in the same settings table so they survive a
+restart: `recently_closed` (the last 20 closed tabs, private tabs never
+included) and `muted_sites` (hostnames the user muted, capped at 200). Both are
+validated as bounded JSON arrays by `set_setting`; mute entries are keyed by
+hostname, so `host:port` inputs are normalised before they are stored.
+
 Browser-data portability is manual, not cloud sync. The trusted shell encrypts
 the database snapshot with PBKDF2-HMAC-SHA-256 (600,000 iterations) and
 AES-256-GCM using a random salt and IV before passing the archive to native

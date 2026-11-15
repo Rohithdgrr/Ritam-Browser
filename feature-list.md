@@ -16,7 +16,7 @@ does not imply that every planned feature is available.
 - Private tabs backed by WebView2 InPrivate storage; private pages are excluded
   from persistent tabs and application history/download records.
 - Guest mode that opens new tabs privately.
-- Back, forward, reload, zoom, print, and find in page.
+- Back, forward, reload, zoom, print, and find in page with a live match count.
 - Fullscreen, page titles, live address-bar URL, and page favicons.
 - Controlled pop-ups, which open as browser tabs.
 - Built-in PDF display where the system webview supports it.
@@ -27,12 +27,13 @@ does not imply that every planned feature is available.
 - Workspaces, bookmarks, favorites, and a customizable search URL template.
 - Local browsing history, downloads, scratchpad notes, and site permissions.
 - Reading list with locally stored text snapshots.
-- Recently closed tabs for the current application session.
+- Recently closed tabs, persisted across restarts (last 20; private tabs are
+  never recorded).
 - Tab search / quick switcher and command palette.
 - Reader mode, Read Aloud, and page translation through a configured
   LibreTranslate-compatible service.
-- Picture-in-Picture, audio indicators and mute, forced dark mode, and
-  per-domain zoom memory.
+- Picture-in-Picture, audio indicators and per-site remembered mute, forced
+  dark mode, and per-domain zoom memory.
 - Form autofill profiles and on-demand local password generation.
 - Import/export bookmarks in Netscape HTML format.
 - Passphrase-encrypted browser-data backup and merge restore (`.gbak`) for
@@ -71,7 +72,10 @@ does not imply that every planned feature is available.
 - Translation needs a user-configured compatible endpoint; page text is sent
   only when translation is requested.
 - Reader mode is a lightweight extraction, not a complete readability engine.
-- Recently closed tabs and mute state do not persist across app restarts.
+- Engine components WebView2 does not expose to its host cannot be added
+  without replacing the engine: CDP request mocking and device emulation,
+  per-tab cookie isolation, casting, Web Push, bfcache control, and the
+  accessibility inspector tree. See README for the full boundary.
 - There is no automatic cloud/account sync. Encrypted archives must be moved
   manually; losing the passphrase makes the archive unrecoverable.
 - Forced dark mode can render some sites incorrectly; site behavior can vary.

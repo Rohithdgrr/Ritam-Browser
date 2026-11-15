@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde_json::Value;
 use tauri::webview::PlatformWebview;
+use tauri::Emitter;
 use webview2_com::{
   take_pwstr,
   AddScriptToExecuteOnDocumentCreatedCompletedHandler,
@@ -51,6 +52,8 @@ struct ScriptState {
 pub unsafe fn register(
   platform: PlatformWebview,
   blocker: NetworkBlocker,
+  app: tauri::AppHandle,
+  tab_id: String,
 ) -> windows::core::Result<()> {
   let controller = platform.controller();
   let core = unsafe { controller.CoreWebView2()? };
@@ -67,7 +70,43 @@ pub unsafe fn register(
   install_request_handler(&core, &environment, blocker.clone());
   install_document_start_handler(&core, blocker.clone(), page_context.clone());
   install_generic_selector_handler(&core, blocker, page_context);
+  install_message_channel(&core, app, tab_id);
   Ok(())
+}
+
+/// Page-side features report their state over WebView2's message channel; the
+/// shell only ever receives the values, never a page-supplied command.
+unsafe fn install_message_channel(
+  core: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2,
+  app: tauri::AppHandle,
+  tab_id: String,
+) {
+  let handler = WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
+    let Some(args) = args else {
+      return Ok(());
+    };
+    let mut raw = PWSTR::null();
+    if unsafe { args.TryGetWebMessageAsString(&mut raw) }.is_err() {
+      return Ok(());
+    }
+    let Ok(message) = serde_json::from_str::<Value>(&take_pwstr(raw)) else {
+      return Ok(());
+    };
+    if message.get("type").and_then(Value::as_str) != Some("govind-find") {
+      return Ok(());
+    }
+    let index = message.get("index").and_then(Value::as_u64).unwrap_or(0);
+    let total = message.get("total").and_then(Value::as_u64).unwrap_or(0);
+    let _ = app.emit_to(
+      "main",
+      "tab-find-count",
+      serde_json::json!({ "tabId": tab_id, "index": index, "total": total }),
+    );
+    Ok(())
+  }));
+
+  let mut token = 0;
+  let _ = unsafe { core.add_WebMessageReceived(&handler, &mut token) };
 }
 
 unsafe fn install_request_handler(

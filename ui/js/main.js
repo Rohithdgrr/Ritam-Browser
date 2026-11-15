@@ -7,6 +7,7 @@ import {
   navigate, openInternalPage, goHome, goBack, goForward, reloadTab, createWorkspace,
   switchWorkspace, deleteWorkspace, toggleBookmarkCurrent, refreshBookmarks, syncNativeViews,
   refreshTabs, applyTabMeta, internalNavStep, setTabGroup, reopenClosedTab, toggleReaderMode,
+  rememberMutedSite, mutedSiteKey,
 } from './state/store.js';
 import {
   renderAll, renderView, renderToolbar, renderTabs, renderSidebarFavorites,
@@ -244,6 +245,7 @@ function openFindBar() {
   const bar = $('#find-bar');
   if (!bar) return;
   bar.classList.remove('hidden');
+  setFindCount(0, 0);
   // The native webview would cover the bar, so the web region shrinks while
   // the bar is open (webRegion() measures it — see state/store.js).
   syncNativeViews();
@@ -255,8 +257,20 @@ function closeFindBar() {
   const bar = $('#find-bar');
   if (!bar || bar.classList.contains('hidden')) return;
   bar.classList.add('hidden');
+  setFindCount(0, 0);
   api.findInTab(store.activeTabId, '', true).catch(() => {});
   syncNativeViews();
+}
+
+/**
+ * Match readout for the find bar. The page script reports `index`/`total` over
+ * WebView2's message channel, so this stays empty on engines without it
+ * instead of showing a wrong number.
+ */
+function setFindCount(index, total) {
+  const label = $('#find-count');
+  if (!label) return;
+  label.textContent = total ? `${index} / ${total}` : '';
 }
 
 function wireFindBar() {
@@ -269,6 +283,9 @@ function wireFindBar() {
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); run(!e.shiftKey); }
     else if (e.key === 'Escape') { e.preventDefault(); closeFindBar(); }
+  });
+  input.addEventListener('input', () => {
+    if (!input.value) setFindCount(0, 0);
   });
 }
 
@@ -291,6 +308,8 @@ async function toggleTabMute(tabId) {
   else store.mutedTabs.delete(tabId);
   const state = store.audioStates.get(tabId) ?? { playing: false, muted };
   store.audioStates.set(tabId, { ...state, muted });
+  // Remember the choice per site so the next visit starts muted too.
+  await rememberMutedSite(hostOf(tab.url), muted);
   renderTabs();
 }
 
@@ -893,6 +912,15 @@ async function wireNativeEvents() {
     }
     applyTabMeta(tabId, { url, favicon_url: null });
     applySavedZoom(tabId, url);
+    // A site muted in an earlier session stays muted on its next visit.
+    const host = mutedSiteKey(hostOf(url));
+    if (!isPrivate && host && store.mutedSites.has(host) && !store.mutedTabs.has(tabId)) {
+      api.setTabMuted(tabId, true).catch(() => {});
+      store.mutedTabs.add(tabId);
+      const audio = store.audioStates.get(tabId) ?? { playing: false };
+      store.audioStates.set(tabId, { ...audio, muted: true });
+      renderTabs();
+    }
     if (!isPrivate) await api.updateTabMeta(tabId, { url, faviconUrl: '' }).catch(() => {});
     if (tabId === store.activeTabId) {
       renderToolbar();
@@ -948,6 +976,12 @@ async function wireNativeEvents() {
     else store.mutedTabs.delete(tabId);
     renderTabs();
     if (store.view === 'internal' && store.internalPage === 'media-controls') renderAll();
+  });
+  api.listen('tab-find-count', (event) => {
+    const { tabId, index, total } = event.payload ?? {};
+    if (tabId && tabId !== store.activeTabId) return;
+    if ($('#find-bar')?.classList.contains('hidden')) return;
+    setFindCount(Number(index) || 0, Number(total) || 0);
   });
   api.listen('tab-translation-data', (event) => handleTranslationData(event.payload));
   api.listen('tab-snapshot-data', (event) => handleSnapshotData(event.payload));

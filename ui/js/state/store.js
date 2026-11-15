@@ -13,10 +13,11 @@ export const store = {
   activeWorkspaceId: null,
   tabs: [],            // tabs of the active workspace
   privateTabs: [],      // private tabs exist only for this app session
-  closedTabs: [],       // recently closed regular tabs, kept in memory only
+  closedTabs: [],       // recently closed regular tabs (persisted across restarts)
   collapsedTabGroups: new Set(),
   readerModeTabs: new Set(),
   mutedTabs: new Set(),
+  mutedSites: new Set(), // hosts muted by the user, restored on later visits
   audioStates: new Map(),
   translatedTabs: new Set(),
   activeTabId: null,
@@ -52,6 +53,19 @@ export const store = {
     return !!tab && tab.url.startsWith('govind://');
   },
 };
+
+const CLOSED_TABS_LIMIT = 20;
+const MUTED_SITES_LIMIT = 200;
+
+/** Settings values are strings; a malformed entry degrades to an empty list. */
+function settingArray(raw, limit) {
+  try {
+    const parsed = JSON.parse(raw ?? '[]');
+    return Array.isArray(parsed) ? parsed.slice(0, limit) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function tabGroupKey(tab) {
   return `${encodeURIComponent(tab.workspace_id)}:${Number(tab.is_pinned)}:${encodeURIComponent(tab.group_name ?? '')}`;
@@ -103,6 +117,14 @@ export function internalNavStep(tabId, delta) {
 export async function initStore() {
   store.settings = await api.getSettings();
   store.workspaces = await api.listWorkspaces();
+  store.closedTabs = settingArray(store.settings.recently_closed, CLOSED_TABS_LIMIT).filter(
+    (entry) => entry && typeof entry.id === 'string' && typeof entry.url === 'string',
+  );
+  store.mutedSites = new Set(
+    settingArray(store.settings.muted_sites, MUTED_SITES_LIMIT).filter(
+      (host) => typeof host === 'string' && host,
+    ),
+  );
 
   // Active workspace comes from persisted settings; fall back to first.
   const persisted = store.settings.active_workspace_id;
@@ -208,7 +230,7 @@ export async function closeTab(tabId) {
   store.translatedTabs.delete(tabId);
   if (closedTab && !closedTab.is_private) {
     store.closedTabs.unshift({ ...closedTab, closed_at: Date.now() });
-    store.closedTabs = store.closedTabs.slice(0, 20);
+    await persistClosedTabs();
   }
   await refreshTabs();
   store.activeTabId = result.active_tab_id ?? store.tabs[0]?.id ?? null;
@@ -262,11 +284,42 @@ export async function reopenClosedTab(closedId) {
   if (closed.is_pinned) reopened = await togglePinTab(reopened.id);
   if (closed.group_name) reopened = await setTabGroup(reopened.id, closed.group_name);
   store.closedTabs = store.closedTabs.filter((tab) => tab.id !== closedId);
+  await persistClosedTabs();
   return reopened;
 }
 
-export function clearClosedTabs() {
+export async function persistClosedTabs() {
+  store.closedTabs = store.closedTabs.slice(0, CLOSED_TABS_LIMIT);
+  await api
+    .setSetting('recently_closed', JSON.stringify(store.closedTabs))
+    .catch(() => {});
+}
+
+export async function clearClosedTabs() {
   store.closedTabs = [];
+  await persistClosedTabs();
+}
+
+/**
+ * Mute state is keyed by hostname. `hostOf()` returns `host:port`, so the port
+ * is stripped here — otherwise the settings validator rejects the entry.
+ */
+export function mutedSiteKey(host) {
+  const value = String(host ?? '').trim().toLowerCase();
+  if (!value) return '';
+  return value.startsWith('[') ? value.replace(/\]:\d+$/, ']') : value.replace(/:\d+$/, '');
+}
+
+/** Mute state is remembered per site, so it survives a restart. */
+export async function rememberMutedSite(host, muted) {
+  const key = mutedSiteKey(host);
+  if (!key) return;
+  host = key;
+  if (muted) store.mutedSites.add(host);
+  else store.mutedSites.delete(host);
+  const hosts = [...store.mutedSites].slice(-MUTED_SITES_LIMIT);
+  store.mutedSites = new Set(hosts);
+  await api.setSetting('muted_sites', JSON.stringify(hosts)).catch(() => {});
 }
 
 export async function toggleReaderMode() {

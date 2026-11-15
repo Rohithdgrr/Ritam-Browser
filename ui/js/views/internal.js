@@ -13,7 +13,7 @@
 import { $, $$, escapeHtml, formatBytes, formatTime, toast } from '../lib/dom.js';
 import * as api from '../services/ipc.js';
 import { displayUrl, hostOf, monogram } from '../lib/url.js';
-import { store, refreshBookmarks, goHome } from '../state/store.js';
+import { store, refreshBookmarks, goHome, persistClosedTabs, clearClosedTabs } from '../state/store.js';
 import { renderSettingsPage } from './settings.js';
 
 const ICON = {
@@ -616,6 +616,7 @@ export function wireInternal() {
       const dismissClosed = e.target.closest('[data-dismiss-closed]')?.getAttribute('data-dismiss-closed');
       if (dismissClosed) {
         store.closedTabs = store.closedTabs.filter((tab) => tab.id !== dismissClosed);
+        await persistClosedTabs();
         await renderInternalPage();
         return;
       }

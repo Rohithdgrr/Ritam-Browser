@@ -25,6 +25,8 @@ const KNOWN_KEYS: &[&str] = &[
     "content_blocking",
     "cosmetic_filters",
     "autofill_profiles",
+    "recently_closed",
+    "muted_sites",
 ];
 // Plus dynamic per-domain zoom keys: `zoom:<host>` → factor.
 const SEARCH_ENGINES: &[&str] = &["duckduckgo", "google", "bing", "startpage", "custom"];
@@ -46,6 +48,8 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("content_blocking", "false"),
     ("cosmetic_filters", ""),
     ("autofill_profiles", "[]"),
+    ("recently_closed", "[]"),
+    ("muted_sites", "[]"),
 ];
 
 fn valid_translation_endpoint(value: &str) -> bool {
@@ -90,6 +94,43 @@ fn valid_cosmetic_filters(value: &str) -> bool {
     })
 }
 
+fn json_array(value: &str) -> Option<Vec<serde_json::Value>> {
+    serde_json::from_str::<serde_json::Value>(value)
+        .ok()?
+        .as_array()
+        .cloned()
+}
+
+/// Recently closed tab entries: bounded list, newest last entry wins nothing —
+/// the shape is validated by the shell, so only the size and ordering matter.
+fn valid_recently_closed(value: &str) -> bool {
+    value.len() <= 200_000
+        && json_array(value)
+            .map(|items| items.len() <= 20 && items.iter().all(|item| item.is_object()))
+            .unwrap_or(false)
+}
+
+/// Muted sites: a bounded list of bare hostnames.
+fn valid_muted_sites(value: &str) -> bool {
+    value.len() <= 20_000
+        && json_array(value)
+            .map(|items| {
+                items.len() <= 200
+                    && items.iter().all(|item| {
+                        item.as_str()
+                            .map(|host| {
+                                !host.is_empty()
+                                    && host.len() <= 253
+                                    && host
+                                        .chars()
+                                        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+                            })
+                            .unwrap_or(false)
+                    })
+            })
+            .unwrap_or(false)
+}
+
 fn valid_autofill_profiles(value: &str) -> bool {
     if value == "[]" {
         return true;
@@ -117,6 +158,8 @@ pub(crate) fn valid_setting_value(key: &str, value: &str) -> bool {
         "adblock_allowlist" => value.len() <= 20_000 && valid_blocklist(value),
         "cosmetic_filters" => value.len() <= 50_000 && valid_cosmetic_filters(value),
         "autofill_profiles" => value.len() <= 100_000 && valid_autofill_profiles(value),
+        "recently_closed" => valid_recently_closed(value),
+        "muted_sites" => valid_muted_sites(value),
         _ if key.starts_with("zoom:") => value
             .parse::<f64>()
             .map(|f| (0.25..=3.0).contains(&f))

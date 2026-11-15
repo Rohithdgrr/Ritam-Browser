@@ -925,6 +925,10 @@ button, select { cursor: pointer; }
   border-radius: var(--radius-sm); color: var(--zen-text); font-size: 12.5px; outline: none;
 }
 .find-bar input:focus { border-color: var(--zen-sage); }
+.find-count {
+  min-width: 46px; text-align: right; font-family: var(--font-mono);
+  font-size: 11px; color: var(--zen-muted); font-variant-numeric: tabular-nums;
+}
 .find-hint { font-size: 10.5px; color: var(--zen-subtle); }
 
 /* ============ Tab context menu (follows the cursor) ============ */
