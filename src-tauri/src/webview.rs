@@ -28,6 +28,67 @@ use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent};
 use crate::db::DbState;
 use crate::error::AppError;
 
+/// Label of the single browsing window used on mobile. Tauri has no child
+/// webviews on Android/iOS, so every tab shares one extra window (one Android
+/// activity) that is navigated to the active tab's URL.
+#[cfg(not(desktop))]
+const MOBILE_WINDOW_LABEL: &str = "ritam-browser-page";
+
+/// Floating mini-toolbar injected into every mobile browsing page. Pure JS +
+/// the History API on purpose: remote pages have no IPC access. The "Ritam"
+/// button navigates to `ritam://home`, which the Rust navigation handler
+/// cancels after dropping a finish marker that BrowserActivity polls for.
+/// NOTE: built with createElement/textContent only — `innerHTML` is blocked by
+/// Trusted Types CSP on sites like YouTube.
+#[cfg(not(desktop))]
+const MOBILE_TOOLBAR_JS: &str = r#"
+(() => {
+  if (window.__ritamMobileBar) return;
+  window.__ritamMobileBar = true;
+  const mount = () => {
+    if (!document.documentElement || document.getElementById('ritam-mobile-bar')) return;
+    const host = document.createElement('div');
+    host.id = 'ritam-mobile-bar';
+    host.style.cssText = 'position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);transform:translateX(-50%);z-index:2147483647;';
+    const root = host.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = '.bar{display:flex;gap:4px;padding:6px;border-radius:16px;background:rgba(22,26,24,.86);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 6px 20px rgba(0,0,0,.3);align-items:center;}' +
+      'button{border:0;background:transparent;color:#f2f1ec;font-size:16px;width:40px;height:36px;border-radius:11px;cursor:pointer;font-family:system-ui,-apple-system,sans-serif;}' +
+      'button:active{background:rgba(255,255,255,.14);}.home{font-weight:700;font-size:13px;letter-spacing:.02em;}';
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    const mk = (cls, label, title, fn) => {
+      const b = document.createElement('button');
+      b.className = cls;
+      b.textContent = label;
+      b.title = title;
+      b.onclick = fn;
+      bar.appendChild(b);
+    };
+    mk('back', '\u2039', 'Back', () => history.back());
+    mk('fwd', '\u203a', 'Forward', () => history.forward());
+    mk('reload', '\u21bb', 'Reload', () => location.reload());
+    mk('home', 'Ritam', 'Back to Ritam', () => {
+      // Native bridge injected by BrowserActivity; ritam://home is just a
+      // harmless fallback that the navigation handler cancels.
+      if (window.RitamAndroid && window.RitamAndroid.goHome) {
+        window.RitamAndroid.goHome();
+      } else {
+        location.href = 'ritam://home';
+      }
+    });
+    root.appendChild(style);
+    root.appendChild(bar);
+    document.documentElement.appendChild(host);
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mount);
+  } else {
+    mount();
+  }
+})();
+"#;
+
 /// Region of the main window (client-area coordinates) covered by the webview.
 #[derive(Debug, Clone)]
 pub struct LayoutState {
@@ -851,8 +912,17 @@ impl TabWebviewManager {
     self.autofill_profiles.lock().unwrap_or_else(|e| e.into_inner()).clone()
   }
 
+  #[cfg(desktop)]
   pub fn has_view(&self, tab_id: &str) -> bool {
     self.webviews().contains_key(tab_id)
+  }
+
+  /// On mobile all tabs share a single browsing window, so "does this tab have
+  /// a view" is always answered "no" — activating a tab must re-navigate the
+  /// shared window to that tab's URL.
+  #[cfg(not(desktop))]
+  pub fn has_view(&self, _tab_id: &str) -> bool {
+    false
   }
 
   pub fn network_blocker(&self) -> NetworkBlocker {
@@ -938,9 +1008,26 @@ impl TabWebviewManager {
     }
   }
 
-  /// Mobile has no child-webview API — there is nothing to lay out.
+  /// Mobile: bring the shared browsing activity to the front when the shell
+  /// shows a web tab. Internal pages never reach this (their tab has no view).
   #[cfg(not(desktop))]
-  pub fn apply(&self) {}
+  pub fn apply(&self) {
+    let layout = self.layout();
+    if !layout.visible {
+      return;
+    }
+    let app = self
+      .webviews()
+      .values()
+      .next()
+      .map(|webview| webview.app_handle().clone());
+    if let Some(app) = app {
+      if let Some(window) = app.get_webview_window(MOBILE_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
+      }
+    }
+  }
 
   /// Navigate a tab.
   ///
@@ -967,6 +1054,13 @@ impl TabWebviewManager {
 
     let parsed =
       Url::parse(url).map_err(|e| AppError::InvalidInput(format!("invalid url: {e}")))?;
+
+    // On mobile the browsing window may have been finished by the OS (e.g. the
+    // user pressed Back) while our handle map still holds a stale webview.
+    #[cfg(not(desktop))]
+    if app.get_webview_window(MOBILE_WINDOW_LABEL).is_none() {
+      self.webviews().clear();
+    }
 
     if let Some(webview) = self.webviews().get(tab_id) {
       let _ = webview.navigate(parsed);
@@ -1198,18 +1292,214 @@ impl TabWebviewManager {
     Ok(())
   }
 
-  /// Mobile fallback: Tauri does not expose child webviews on Android/iOS, so
-  /// embedded tab pages cannot be created there yet.
+  /// Mobile: there are no child webviews, so browsing happens in a dedicated
+  /// window (one Android activity) shared by all tabs. The window is created
+  /// once and re-navigated for every tab switch.
   #[cfg(not(desktop))]
   async fn create_view(
     &self,
-    _app: &AppHandle,
-    _tab_id: &str,
-    _url: Url,
+    app: &AppHandle,
+    tab_id: &str,
+    url: Url,
   ) -> Result<(), AppError> {
-    Err(AppError::Window(
-      "embedded tab webviews are not supported on mobile yet".into(),
-    ))
+    // Reuse the shared browsing window when it is already open.
+    if let Some(window) = app.get_webview_window(MOBILE_WINDOW_LABEL) {
+      let _ = window.navigate(url);
+      let webview: Webview = window.as_ref().clone();
+      self.webviews().insert(tab_id.to_string(), webview);
+      return Ok(());
+    }
+
+    let nav_id = tab_id.to_string();
+    let title_id = tab_id.to_string();
+    let load_id = tab_id.to_string();
+    let popup_id = tab_id.to_string();
+    let is_private = self.is_private(tab_id);
+
+    let nav_handle = app.clone();
+    let title_handle = app.clone();
+    let load_handle = app.clone();
+    let popup_handle = app.clone();
+    let download_handle = app.clone();
+    let download_tab_id = tab_id.to_string();
+    let initial_script = PAGE_FEATURES_JS
+      .replace(
+        "__INITIAL_MUTED__",
+        if self.is_muted(tab_id) { "true" } else { "false" },
+      )
+      .replace("__PASSWORD_GENERATOR__", PASSWORD_GENERATOR_JS)
+      + MOBILE_TOOLBAR_JS;
+
+    let mut builder = tauri::WebviewWindowBuilder::new(
+      app,
+      MOBILE_WINDOW_LABEL,
+      WebviewUrl::External(url),
+    )
+    .title("Ritam Browser")
+    .incognito(is_private)
+    .initialization_script(initial_script)
+    .on_navigation(move |url| {
+      // `ritam://` fallback for the toolbar's "Ritam" button (the preferred
+      // path is the RitamAndroid.goHome() JS bridge): cancel the load and
+      // drop the stale webview handles.
+      if url.scheme() == "ritam" {
+        if let Some(manager) = nav_handle.try_state::<TabWebviewManager>() {
+          manager.clear_handles();
+        }
+        return false;
+      }
+      if !is_page_url(url) {
+        return false;
+      }
+      if let Some(reason) = unsafe_reason(&nav_handle, url) {
+        let _ = nav_handle.emit(
+          "tab-unsafe-navigation",
+          json!({ "tabId": nav_id, "url": url.to_string(), "reason": reason }),
+        );
+        return false;
+      }
+      let _ = nav_handle.emit(
+        "tab-url-changed",
+        json!({ "tabId": nav_id, "url": url.to_string() }),
+      );
+      true
+    })
+    .on_document_title_changed(move |_window, title| {
+      if let Some(state) = title.strip_prefix("__GOVIND_AUDIO__:") {
+        let mut parts = state.split(':');
+        let _ = title_handle.emit(
+          "tab-audio-state",
+          json!({
+            "tabId": title_id,
+            "playing": parts.next() == Some("1"),
+            "muted": parts.next() == Some("1"),
+            "hasMedia": parts.next() == Some("1"),
+            "mediaPlaying": parts.next() == Some("1"),
+          }),
+        );
+        return;
+      }
+      if let Some(data) = title.strip_prefix("__GOVIND_TRANSLATE__:") {
+        let _ = title_handle.emit(
+          "tab-translation-data",
+          json!({ "tabId": title_id, "data": data }),
+        );
+        return;
+      }
+      if let Some(data) = title.strip_prefix("__GOVIND_SNAPSHOT__") {
+        let _ = title_handle.emit(
+          "tab-snapshot-data",
+          json!({ "tabId": title_id, "data": data }),
+        );
+        return;
+      }
+      if let Some(message) = title.strip_prefix("__GOVIND_NOTICE__:") {
+        let _ = title_handle.emit(
+          "tab-feature-notice",
+          json!({ "tabId": title_id, "message": message }),
+        );
+        return;
+      }
+      let lower = title.to_ascii_lowercase();
+      let is_favicon_probe =
+        lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("data:");
+      if is_favicon_probe {
+        let _ = title_handle.emit(
+          "tab-favicon-changed",
+          json!({ "tabId": title_id, "faviconUrl": title }),
+        );
+        return;
+      }
+      let _ = title_handle.emit(
+        "tab-title-changed",
+        json!({ "tabId": title_id, "title": title }),
+      );
+    })
+    .on_page_load(move |window, payload| {
+      let event = match payload.event() {
+        PageLoadEvent::Started => "tab-load-started",
+        PageLoadEvent::Finished => "tab-load-finished",
+      };
+      let _ = load_handle.emit(
+        event,
+        json!({ "tabId": load_id, "url": payload.url().to_string() }),
+      );
+      if matches!(payload.event(), PageLoadEvent::Finished) {
+        let mgr = load_handle.state::<TabWebviewManager>();
+        let muted = mgr.is_muted(&load_id);
+        let force_dark = mgr.force_dark_enabled();
+        let spell = mgr.spellcheck_enabled();
+        let dnt = mgr.dnt_enabled();
+        let css = mgr.cosmetic_css();
+        let profiles = mgr.autofill_profiles();
+        let probe = window.clone();
+        std::thread::spawn(move || {
+          let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
+          let _ = probe.eval(&format!("window.__govindSetCosmetic && window.__govindSetCosmetic({css_json});"));
+          std::thread::sleep(Duration::from_millis(400));
+          let _ = probe.eval(FAVICON_PROBE_JS);
+          let _ = probe.eval(&format!("window.__govindSetMuted && window.__govindSetMuted({muted});"));
+          let _ = probe.eval(&format!("window.__govindForceDark && window.__govindForceDark({force_dark});"));
+          let _ = probe.eval(&format!("window.__govindSetSpellcheck && window.__govindSetSpellcheck({spell});"));
+          let _ = probe.eval(&format!("window.__govindSetDnt && window.__govindSetDnt({dnt});"));
+          let profiles_json = serde_json::to_string(&profiles).unwrap_or_else(|_| "\"[]\"".into());
+          let _ = probe.eval(&format!("window.__govindSetAutofill && window.__govindSetAutofill({profiles_json});"));
+        });
+      }
+    })
+    .on_new_window(move |url, _features| {
+      let _ = popup_handle.emit(
+        "tab-new-window",
+        json!({ "tabId": popup_id, "isPrivate": is_private, "url": url.to_string() }),
+      );
+      NewWindowResponse::Deny
+    })
+    .on_download(move |_webview, event| {
+      match event {
+        DownloadEvent::Requested { url, destination } => {
+          let _ = download_handle.emit(
+            "download-started",
+            json!({
+              "tabId": download_tab_id,
+              "isPrivate": is_private,
+              "url": url.to_string(),
+              "filename": destination.file_name().map(|n| n.to_string_lossy().to_string()),
+            }),
+          );
+          true
+        }
+        DownloadEvent::Finished { url, path, success } => {
+          let _ = download_handle.emit(
+            "download-finished",
+            json!({
+              "tabId": download_tab_id,
+              "isPrivate": is_private,
+              "url": url.to_string(),
+              "path": path.map(|p| p.to_string_lossy().to_string()),
+              "success": success,
+            }),
+          );
+          true
+        }
+        _ => true,
+      }
+    });
+    // Android needs an explicit Activity class for every extra window; without
+    // it tao silently fails to create the activity. `BrowserActivity` is
+    // declared in the app manifest.
+    #[cfg(target_os = "android")]
+    {
+      builder = builder
+        .activity_name("BrowserActivity")
+        .created_by_activity_name("MainActivity");
+    }
+    let window = builder
+    .build()
+    .map_err(|error| AppError::Window(format!("create browsing window: {error}")))?;
+
+    let webview: Webview = window.as_ref().clone();
+    self.webviews().insert(tab_id.to_string(), webview);
+    Ok(())
   }
 
   #[cfg(windows)]
@@ -1246,10 +1536,36 @@ impl TabWebviewManager {
   #[cfg(not(desktop))]
   fn close_webview(_webview: Webview) {}
 
+  /// Drop every stored webview handle without touching windows. Used on mobile
+  /// after the shared browsing activity was destroyed externally.
+  #[cfg(not(desktop))]
+  pub fn clear_handles(&self) {
+    self.webviews().clear();
+  }
+
+  /// Destroy the shared mobile browsing window, if it exists.
+  #[cfg(not(desktop))]
+  fn destroy_mobile_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(MOBILE_WINDOW_LABEL) {
+      let _ = window.destroy();
+    }
+  }
+
   /// Destroy a tab's webview (tab closed, or the tab returned to the home page).
   pub fn close_view(&self, tab_id: &str) {
-    if let Some(webview) = self.webviews().remove(tab_id) {
+    let removed = self.webviews().remove(tab_id);
+    if let Some(webview) = removed {
+      #[cfg(desktop)]
       Self::close_webview(webview);
+      #[cfg(not(desktop))]
+      {
+        // All tabs share one browsing activity: closing any web view means the
+        // surface is gone, so destroy the window and drop every stale handle.
+        let app = webview.app_handle().clone();
+        drop(webview);
+        Self::destroy_mobile_window(&app);
+        self.webviews().clear();
+      }
     }
   }
 
@@ -1264,9 +1580,19 @@ impl TabWebviewManager {
   }
 
   pub fn close_all(&self) {
+    #[cfg(not(desktop))]
+    let app = self
+      .webviews()
+      .values()
+      .next()
+      .map(|webview| webview.app_handle().clone());
     let drained: Vec<Webview> = self.webviews().drain().map(|(_, w)| w).collect();
     for webview in drained {
       Self::close_webview(webview);
+    }
+    #[cfg(not(desktop))]
+    if let Some(app) = app {
+      Self::destroy_mobile_window(&app);
     }
     self.private_tabs.lock().unwrap_or_else(|e| e.into_inner()).clear();
     self.muted_tabs.lock().unwrap_or_else(|e| e.into_inner()).clear();
