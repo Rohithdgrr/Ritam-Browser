@@ -29,9 +29,9 @@ translation server only when you explicitly translate a page.
 | Reading list with offline text snapshots (`govind://reading-list`) | ✅ Working |
 | Tab search / quick switcher (Ctrl+Shift+A) | ✅ Working |
 | New-tab shortcut tiles (bookmark favorites) and custom search URL template | ✅ Working |
-| Picture-in-Picture, per-tab audio mute + speaker indicators | ✅ Working |
+| Picture-in-Picture (Alt+Shift+P), per-tab audio mute + speaker indicators (Alt+Shift+M) | ✅ Working |
 | In-app media controls across loaded tabs (top-level audio/video, including private tabs) | ✅ Working |
-| Forced dark mode for websites, built-in page translation | ✅ Working |
+| Forced dark mode for websites (Alt+Shift+D), page translation through a configured LibreTranslate endpoint (Alt+Shift+T) | ✅ Working |
 | Read Aloud with current-word highlighting (Alt+Shift+R) | ✅ Working |
 | Spell check in web forms, print / save-as-PDF (Ctrl+P) | ✅ Working |
 | Form autofill profiles (names, addresses, cards — Settings → Autofill) | ✅ Working |
@@ -39,10 +39,6 @@ translation server only when you explicitly translate a page.
 | Guest mode (all-new-tabs-private session), task manager page | ✅ Working |
 | Safe-browsing blocklist warnings, Do Not Track, cosmetic filters, EasyList/EasyPrivacy/uBlock network and cosmetic blocking | ✅ Windows/WebView2 (each filter list refreshes on its upstream 12-hour to 7-day schedule) |
 | Forget site data: matching cookies (including HttpOnly), origin storage, IndexedDB, Cache Storage, service workers | ✅ Working (site must be open; reload after) |
-| Picture-in-Picture (video hover control / Alt+Shift+P) | ✅ Working |
-| Tab audio indicators and mute (Alt+Shift+M) | ✅ Working |
-| Forced dark websites (Alt+Shift+D) | ✅ Working |
-| Page translation through a configured LibreTranslate endpoint (Alt+Shift+T) | ✅ Working |
 | Real favicons from the page, tab context menu (duplicate, pin, mute, close others / right / except pinned) | ✅ Working |
 | Bookmarks import / export (Netscape HTML, works with Chrome/Firefox/Edge) | ✅ Working (native OS file dialog, Rust-side parsing) |
 | Encrypted browser-data backup / merge restore (`.gbak`) | ✅ Working (PBKDF2 + AES-256-GCM; manual transfer, not automatic sync) |
@@ -164,13 +160,17 @@ govind-browser/
 │   └── assets/             #   self-hosted fonts, icon, welcome kit
 ├── src-tauri/              # Rust backend
 │   ├── src/webview.rs      #   tab webview manager — the engine seam (ADR-007)
+│   ├── src/adblocker.rs    #   filter engine, bundled lists, cache + list updates
+│   ├── src/webview2_blocker.rs  # Windows request hook, cosmetic script injection
 │   ├── src/commands/       #   typed IPC commands (tabs, workspaces, data, settings,
-│   │                       #   bookmarks_io — bookmark import/export)
+│   │                       #   backup, bookmarks_io, menu)
 │   ├── src/db.rs           #   SQLite (rusqlite bundled) + first-run seed
 │   ├── migrations/         #   0001_init.sql (WAL, foreign keys, indexes)
+│   ├── filter-assets/      #   offline filter lists + uBlock scriptlet resources
 │   └── capabilities/       #   least-privilege: window controls + shell open only
-├── tests/                  # node:test unit tests (no npm deps needed)
+├── tests/                  # node:test unit tests — 48 across 9 files, no npm deps
 ├── tools/serve.mjs         # zero-dep static server for UI preview
+├── tools/build-filter-assets.mjs  # regenerates src-tauri/filter-assets/
 └── docs/                   # PRD, engine spike, ADR-006/ADR-007
 ```
 
@@ -184,6 +184,10 @@ network):
 | `govind://history` | Browsing history grouped by day (or by site), with search |
 | `govind://downloads` | Download history grouped by day, open file / remove |
 | `govind://bookmarks` | Saved bookmarks and favourites |
+| `govind://reading-list` | Reading list with offline text snapshots |
+| `govind://recently-closed` | Tabs closed during this app session |
+| `govind://task-manager` | Observable per-tab state |
+| `govind://media-controls` | Audio/video playing across loaded tabs |
 | `govind://settings` | Settings: general, appearance, privacy, permissions, about |
 
 Type one into the address bar or use the sidebar / the ⋮ menu.
@@ -202,7 +206,7 @@ Type one into the address bar or use the sidebar / the ⋮ menu.
 
 ```bash
 node tools/serve.mjs        # → http://localhost:8081
-npm test                    # 27 unit tests
+npm test                    # 48 unit tests
 ```
 
 In the browser preview, pages load in an `<iframe>` (sites that forbid framing
@@ -230,9 +234,17 @@ build-essential pkg-config libssl-dev` and `npm run tauri:build` works there too
 
 ```bash
 cd src-tauri
-cargo test                  # unit tests (URL validation boundary)
+cargo test                  # 32 tests: URL validation and IPC data commands,
+                            #   plus the bundled filter lists and real ad hosts
 cargo check
 ```
+
+`cargo test` builds the ad-blocker engine from the shipped snapshots and asserts
+that known ad hosts are blocked, that `cnn.com` and `youtube.com` resolve their
+cosmetic rules and scriptlets, and that ordinary first-party requests pass.
+The UI side is covered by `npm test` (pure modules) — the command surface itself
+is verified by `ui/js/services/fallback-db.js` implementing every command the
+shell invokes.
 
 ## IPC security model
 

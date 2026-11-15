@@ -30,6 +30,15 @@ SQLite (db.rs, migrations/)   TabWebviewManager (webview.rs)
   native menus.
 - `src-tauri/src/webview.rs`: creates, positions, shows, hides, navigates, and
   closes native child webviews; handles page events and browser integrations.
+- `src-tauri/src/adblocker.rs`: network and cosmetic filter engine (Brave's
+  `adblock` crate), the bundled list snapshots, the engine cache, per-list
+  upstream refresh, and the block / stub / re-target decision for a request.
+- `src-tauri/src/webview2_blocker.rs` (Windows only): the WebView2 request hook,
+  document-start script injection for cosmetic rules and scriptlets, and the
+  class/id report channel that resolves generic selectors.
+- `src-tauri/filter-assets/`: offline EasyList, EasyPrivacy and uBlock Origin
+  snapshots plus the uBlock scriptlet/redirect resources and a manifest with
+  upstream attribution. `tools/build-filter-assets.mjs` regenerates it.
 - `src-tauri/src/db.rs`: resolves the application data directory, opens SQLite,
   enables WAL and foreign keys, applies the embedded schema, and seeds initial
   workspace/bookmark data.
@@ -75,11 +84,36 @@ or recoverable.
 ## Engine constraints
 
 The app uses the system webview, not an embedded full Chromium distribution.
-The current integration does not provide Chromium DevTools Protocol, general
-request interception, response mocking, extension compatibility, or
-per-tab CPU/memory reporting. The embedded child-webview API is enabled
+The current integration does not provide Chromium DevTools Protocol, extension
+compatibility, or per-tab CPU/memory reporting. Request handling is limited to
+a Windows/WebView2 hook that can block a request, serve an inert stand-in, or
+re-target its URL; it cannot rewrite a response body, inject CSP headers, or
+intercept WebSocket frames. The embedded child-webview API is enabled
 through Tauri's `unstable` feature. See `docs/ADR-007-embedded-webviews.md`
 and `docs/ENGINE_SPIKE.md` for rationale and open measurements.
+
+## Ad and tracker blocking
+
+The blocker is on-device and list-driven. Full EasyList, EasyPrivacy and uBlock
+Origin snapshots are compiled into the binary, so a fresh install filters
+before it makes any network request. On launch the cached lists in the
+application data directory (`filter-lists/`) are validated and used when they
+are still current; a background updater re-fetches a list only when its own
+`! Expires:` header says it is due (12 hours for uBlock quick fixes, up to
+7 days for others) and rebuilds the engine once per change.
+
+The serialized engine is cached as `engine.dat` with a key that covers the list
+contents, the uBlock resource bodies and the engine version, so changed
+scriptlets invalidate it. Only the uBlock lists are parsed with the permission
+bit that allows trusted scriptlets; EasyList and EasyPrivacy are parsed without
+permissions. Blocking, `$removeparam` re-targeting and cosmetic updates apply to
+open tabs without a reload, while paused blocking or a per-site allowlist entry
+takes effect immediately.
+
+All decisions stay in the browser process: lists are fetched from their public
+hosts, no page URL is reported anywhere, and blocked/redirected counters are
+per-session only. The network hook exists only on Windows/WebView2; other
+platforms keep the custom CSS cosmetic filter and no network filtering.
 
 ## Frontend preview
 

@@ -43,6 +43,9 @@ does not imply that every planned feature is available.
 
 - HTTPS-first, website appearance, spellcheck, Do Not Track, safe-browsing
   warnings, and cosmetic content filters.
+- Built-in network, cosmetic and scriptlet ad/tracker blocking from bundled
+  EasyList, EasyPrivacy and uBlock Origin lists, with per-list refresh
+  schedules, a session pause toggle and a per-site allowlist.
 - Clear history, downloads, permissions, and per-site cookies/site data.
 - Website permission decisions for supported permission types.
 - No built-in telemetry; application data is stored locally.
@@ -53,9 +56,14 @@ does not imply that every planned feature is available.
   isolation is not available.
 - The app does not inspect TLS certificates. The security indicator is based
   on the URL scheme and is labeled accordingly.
-- The system webview does not expose Chromium DevTools Protocol, general
-  request interception, response mocking, extensions, or per-tab CPU/memory
-  measurements.
+- The system webview does not expose Chromium DevTools Protocol, extensions,
+  or per-tab CPU/memory measurements. Request handling is limited to the
+  Windows/WebView2 hook used by the ad blocker.
+- Network filtering is Windows/WebView2 only. The hook cannot rewrite response
+  bodies, so `$replace`-style anti-adblock rules and server-inserted ads are
+  only partially handled and some sites (notably YouTube) may still show ads.
+- Filter lists are public community lists refreshed on their own schedules; the
+  blocker is not real-time cloud threat intelligence.
 - Split view, tab sleeping, and interrupted-download resume are not
   implemented.
 - Media casting, Web Share integration, site push notifications, and device
