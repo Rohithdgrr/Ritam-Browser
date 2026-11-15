@@ -8,7 +8,7 @@
 //!
 //! Security: a child webview inherits the parent window's label, but Tauri's
 //! ACL only grants the app's commands to *local* origins — a remote page can
-//! never invoke a single Govind command (see `capabilities/default.json`).
+//! never invoke a single Ritam command (see `capabilities/default.json`).
 //!
 //! Windows note: creating a WebView2 controller from inside a webview message
 //! handler deadlocks, so every command that creates a webview is `async` and
@@ -775,7 +775,7 @@ const FIND_IN_PAGE_JS: &str = r#"
 })(__QUERY__, __FORWARD__);
 "#;
 
-/// Built-in safe-browsing entries. Kept deliberately tiny: Govind has no
+/// Built-in safe-browsing entries. Kept deliberately tiny: Ritam has no
 /// threat-feed connection yet, so this list holds Google's public
 /// Safe Browsing *test* host (so the warning flow can be exercised) plus
 /// entries the user adds via the `safebrowsing_blocklist` setting.
@@ -1476,7 +1476,7 @@ fn is_page_url(url: &Url) -> bool {
 /// host matches the built-in list or the user's `safebrowsing_blocklist`
 /// setting — unless the user already chose to visit that exact URL.
 ///
-/// This is a *local* check only: Govind has no threat-feed connection, so the
+/// This is a *local* check only: Ritam has no threat-feed connection, so the
 /// built-in list is tiny (a test host) and real protection comes from the
 /// user-managed list. Matching is by host suffix.
 fn unsafe_reason(app: &AppHandle, url: &Url) -> Option<String> {
@@ -1521,7 +1521,7 @@ fn unsafe_reason(app: &AppHandle, url: &Url) -> Option<String> {
       continue;
     }
     if host == e || host.ends_with(&format!(".{e}")) {
-      return Some(format!("The site “{host}” is on Govind's blocklist."));
+      return Some(format!("The site “{host}” is on Ritam's blocklist."));
     }
   }
   None

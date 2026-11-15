@@ -1,4 +1,4 @@
-# Govind Browser
+# Ritam Browser
 
 > *A fast browser that shows you how the internet works.*
 
@@ -12,6 +12,9 @@ translation server only when you explicitly translate a page.
 | Area | Status |
 |---|---|
 | Browser shell UI (Zen theme) | ✅ Working |
+| Responsive shell: the sidebar collapses (drawer under 700px, toggle button), panels become bottom sheets under 520px, home/favourites reflow, window minimum 480×420 | ✅ Working |
+| Profiles: local identities (name + Gmail-style label) with their own workspaces and tabs, Chrome-style switcher in the toolbar | ✅ Working (local only — Ritam never signs in to an account) |
+| Quick popovers for downloads, history, bookmarks, media controls and print | ✅ Working (each links to its full internal page) |
 | Tabs: create / close / switch / pin / reorder / persist | ✅ Working |
 | Workspaces: create / switch / rename / delete, per-workspace tabs | ✅ Working |
 | Bookmarks (add / delete / favorite) + sidebar & home favorites | ✅ Working |
@@ -67,13 +70,17 @@ Known limitations (each tracked in `docs/ENGINE_SPIKE.md`):
 2. Creating a WebView2 controller must not happen on the UI thread on Windows,
    so `navigate_tab` is an `async` command (Tauri's async runtime).
 3. A page takes the keyboard focus when clicked, so most browser shortcuts are
-   registered globally only while the Govind window is focused. PiP uses a
+   registered globally only while the Ritam window is focused. PiP uses a
    page-side shortcut so its request retains the video's user gesture.
 4. No certificate inspection: "secure connection" in the UI reflects the URL
    scheme only. It is labeled as such in the app.
 5. Regular tabs share one WebView2 profile, so per-tab identity/cookie isolation
    is not available yet. Private tabs use WebView2 InPrivate storage and are
    excluded from session restore and the app's history/download records.
+   Local profiles separate workspaces and tab sessions, but they still share
+   the WebView2 cookie jar plus bookmarks, history, downloads and the reading
+   list. A profile's email is a local label; nothing is sent to Google and the
+   app has no account sign-in or sync.
 6. There is no CDP or general-purpose request mocking. Windows/WebView2 tabs
    install a native request hook for EasyList/EasyPrivacy and uBlock Origin ad,
    tracker, scriptlet and cosmetic filtering. Full list snapshots are shipped
@@ -100,10 +107,10 @@ Known limitations (each tracked in `docs/ENGINE_SPIKE.md`):
 11. Read Aloud uses WebView2's installed speech voices and highlights words
     where the engine supports the CSS Custom Highlight API. The password
     generator creates a 24-character password locally on explicit click and
-    fills only the focused password field; Govind does not save generated
+    fills only the focused password field; Ritam does not save generated
     passwords.
 12. Browser-data transfer is a manual encrypted file, not live cross-device
-    sync. It uses a passphrase you must retain; Govind cannot recover it.
+    sync. It uses a passphrase you must retain; Ritam cannot recover it.
     Import merges records and keeps existing conflicting data. Private tabs and
     downloaded file contents are never included.
 
@@ -112,7 +119,7 @@ Known limitations (each tracked in `docs/ENGINE_SPIKE.md`):
 The installed app uses the system WebView2 runtime, not a separately controlled
 Chromium build. Web APIs such as WebCodecs, text fragments, Credential Management, Payment
 Request, clipboard, file access, and hardware-device access are runtime-, OS-,
-origin-, and policy-dependent; Govind does not emulate Chrome or promise
+origin-, and policy-dependent; Ritam does not emulate Chrome or promise
 feature parity for them.
 Test those APIs against the supported WebView2 runtime instead of treating
 them as app-owned browser features.
@@ -122,7 +129,7 @@ not expose to its host, so they cannot be added without replacing the engine
 with a full Chromium/CEF build: CDP-driven request mocking and device emulation,
 per-tab cookie/identity isolation, Chromecast/Media Router, Web Push, the
 accessibility inspector tree, and bfcache control. Others need a provider or
-platform service Govind does not ship: cross-device sync, neural TTS voices,
+platform service Ritam does not ship: cross-device sync, neural TTS voices,
 cloud PDF storage, offline translation, and system-level (SMTC) media controls.
 
 The current shell does not expose browser-engine controls for DoH, process/site
@@ -132,7 +139,7 @@ WebView2 and public EasyList/EasyPrivacy rules; it is not real-time cloud threat
 detection and cannot guarantee playback on anti-adblock sites.
 Cloud-backed threat intelligence,
 password-breach monitoring, AI/history services, Google Drive, and cloud speech
-voices also need provider integrations that Govind does not currently have.
+voices also need provider integrations that Ritam does not currently have.
 PDF annotation, full-resource offline archives, and live captions are separate
 product subsystems and remain unimplemented; Protocol Lab remains skipped per
 product decision.
@@ -158,25 +165,28 @@ IPC commands.
 ## Repository layout
 
 ```
-govind-browser/
+rita-browser/
+├── .github/workflows/      # CI (tests) and Release (tagged Windows + Linux builds)
 ├── ui/                     # The whole frontend — no build step
 │   ├── index.html          #   shell: titlebar, sidebar, toolbar, views, panels
 │   ├── styles/             #   tokens.css (CSS variables) · app.css (vanilla)
 │   ├── js/                 #   ES modules: services/ipc.js routes to Tauri or fallback
 │   │   ├── views/internal.js  # govind://history, /downloads, /bookmarks, /settings
-│   │   └── views/settings.js  # the settings page (category rail + cards)
+│   │   ├── views/profiles.js  # profile chip + Chrome-style switcher popover
+│   │   ├── views/quick-popovers.js  # downloads/history/bookmarks/media/print panels
+│   │   └── views/settings.js  # one settings page: jump rail + every section
 │   └── assets/             #   self-hosted fonts, icon, welcome kit
 ├── src-tauri/              # Rust backend
 │   ├── src/webview.rs      #   tab webview manager — the engine seam (ADR-007)
 │   ├── src/adblocker.rs    #   filter engine, bundled lists, cache + list updates
 │   ├── src/webview2_blocker.rs  # Windows request hook, cosmetic script injection
-│   ├── src/commands/       #   typed IPC commands (tabs, workspaces, data, settings,
-│   │                       #   backup, bookmarks_io, menu)
+│   ├── src/commands/       #   typed IPC commands (tabs, workspaces, profiles, data,
+│   │                       #   settings, backup, bookmarks_io, menu)
 │   ├── src/db.rs           #   SQLite (rusqlite bundled) + first-run seed
 │   ├── migrations/         #   0001_init.sql (WAL, foreign keys, indexes)
 │   ├── filter-assets/      #   offline filter lists + uBlock scriptlet resources
 │   └── capabilities/       #   least-privilege: window controls + shell open only
-├── tests/                  # node:test unit tests — 53 across 10 files, no npm deps
+├── tests/                  # node:test unit tests — 58 across 11 files, no npm deps
 ├── tools/serve.mjs         # zero-dep static server for UI preview
 ├── tools/build-filter-assets.mjs  # regenerates src-tauri/filter-assets/
 └── docs/                   # PRD, engine spike, ADR-006/ADR-007
@@ -184,7 +194,7 @@ govind-browser/
 
 ## Internal pages
 
-Like `chrome://` URLs, Govind renders a few pages itself (no webview, no
+Like `chrome://` URLs, Ritam renders a few pages itself (no webview, no
 network):
 
 | URL | Page |
@@ -196,7 +206,7 @@ network):
 | `govind://recently-closed` | Tabs closed during this app session |
 | `govind://task-manager` | Observable per-tab state |
 | `govind://media-controls` | Audio/video playing across loaded tabs |
-| `govind://settings` | Settings: general, appearance, privacy, permissions, about |
+| `govind://settings` | All settings sections on one page (general, data transfer, appearance, autofill, translation, privacy, permissions, about) with a jump rail and filter box |
 
 Type one into the address bar or use the sidebar / the ⋮ menu.
 
@@ -214,7 +224,7 @@ Type one into the address bar or use the sidebar / the ⋮ menu.
 
 ```bash
 node tools/serve.mjs        # → http://localhost:8081
-npm test                    # 53 unit tests
+npm test                    # 58 unit tests
 ```
 
 In the browser preview, pages load in an `<iframe>` (sites that forbid framing
@@ -230,20 +240,41 @@ preinstalled on Windows 11 and recent Windows 10).
 ```bash
 npm install                 # installs @tauri-apps/cli only
 npm run tauri:dev           # run in dev mode
-npm run tauri:build         # produces an NSIS/MSI installer
+npm run tauri:build         # produces an NSIS .exe + MSI .msi
 ```
+
+Installers land in `src-tauri/target/release/bundle/{nsis,msi}/`. The product
+name is **Ritam Browser** (v0.1.0) and the icon set comes from
+`RITAM_Desktop_Icon.png` via `npx tauri icon RITAM_Desktop_Icon.png`.
 
 On Linux, install `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev
 libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
-build-essential pkg-config libssl-dev` and `npm run tauri:build` works there too
-(the engine tracks the system WebView — WebKitGTK).
+build-essential pkg-config libssl-dev patchelf` and `npm run tauri:build`
+produces `.deb` and `.AppImage` bundles (the engine tracks the system WebView —
+WebKitGTK). Linux bundles are built in CI, not on Windows.
+
+### CI/CD
+
+- `.github/workflows/ci.yml` — runs the UI tests and the Rust suite on Windows
+  and Ubuntu for every push to `main` and every pull request.
+- `.github/workflows/release.yml` — on a `v*` tag, builds the Windows `.msi`
+  and NSIS `.exe` plus the Linux `.deb` and `.AppImage`, then publishes them as
+  a GitHub release.
+
+### Android
+
+There is no Android build. The tab engine is built on Tauri's `Window::add_child`
+multi-webview API, and Tauri compiles that API only for desktop
+(`#[cfg(all(desktop, feature = "unstable"))]`), so the crate cannot build for
+`aarch64-linux-android`. An Android app would need a separate single-webview
+shell around the same commands — it is a port, not a packaging step.
 
 ### Verifying the Rust side
 
 ```bash
 cd src-tauri
-cargo test                  # 33 tests: URL validation and IPC data commands,
-                            #   plus the bundled filter lists and real ad hosts
+cargo test                  # 36 tests: URL validation, profile scoping and data
+                            #   commands, plus the bundled filter lists and ad hosts
 cargo check
 ```
 
@@ -285,7 +316,7 @@ muted.
   webviews), and `shell:allow-open` (open-in-system-browser). Nothing else.
 - Remote web content lives in **child webviews with no IPC access** — they load
   remote origins, and Tauri grants the app's commands to local origins only, so
-  a page cannot invoke a single Govind command.
+  a page cannot invoke a single Ritam command.
 - Every command validates input in Rust; URLs are allowlisted to `http(s)://`
   (+ the internal `govind://` pages) — `javascript:`, `file:`, `data:` are
   rejected.
@@ -314,7 +345,7 @@ muted.
 | Alt + ← / → | Back / forward |
 | Esc | Close palette / panels / menus |
 
-Shortcuts are registered globally **while the Govind window is focused** (a page
+Shortcuts are registered globally **while the Ritam window is focused** (a page
 has the keyboard focus otherwise) and released when it loses focus, so they
 never shadow the same keys in other applications.
 

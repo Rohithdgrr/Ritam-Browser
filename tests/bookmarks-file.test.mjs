@@ -34,12 +34,12 @@ test('strips nested markup from titles', () => {
 
 test('round-trips through the export format', () => {
   const bookmarks = [
-    { title: 'Govind & friends <3', url: 'https://govind.test/' },
+    { title: 'Ritam & friends <3', url: 'https://govind.test/' },
     { title: 'x', url: 'file:///nope' },
   ];
   const html = buildBookmarksHtml(bookmarks);
   const parsed = parseBookmarksHtml(html);
-  assert.deepEqual(parsed, [{ title: 'Govind & friends <3', url: 'https://govind.test/' }]);
+  assert.deepEqual(parsed, [{ title: 'Ritam & friends <3', url: 'https://govind.test/' }]);
 });
 
 test('parses empty input to []', () => {

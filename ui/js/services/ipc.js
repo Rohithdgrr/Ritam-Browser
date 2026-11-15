@@ -1,5 +1,5 @@
 /**
- * Govind Browser — typed IPC service layer.
+ * Ritam Browser — typed IPC service layer.
  * Inside Tauri 2 (withGlobalTauri) every call goes to the Rust backend.
  * In a plain browser (the local preview) the same command names are served
  * by a localStorage fallback with an identical contract (services/fallback-db.js).
@@ -99,6 +99,13 @@ export const readAloudTab = (tabId) => invoke('read_aloud_tab', { tabId });
 export const inspectTab = (tabId) => invoke('inspect_tab', { tabId });
 export const duplicateTab = (tabId) => invoke('duplicate_tab', { tabId });
 export const closeOtherTabs = (tabId, scope) => invoke('close_other_tabs', { tabId, scope });
+
+// ── Profiles (local identities; no account sign-in) ──────────────────
+export const listProfiles = () => invoke('list_profiles');
+export const createProfile = (name, email, color) => invoke('create_profile', { name, email, color });
+export const updateProfile = (profileId, meta = {}) => invoke('update_profile', { profileId, ...meta });
+export const deleteProfile = (profileId) => invoke('delete_profile', { profileId });
+export const setActiveProfile = (profileId) => invoke('set_active_profile', { profileId });
 
 // ── Workspaces ────────────────────────────────────────────────────────
 export const createWorkspace = (name) => invoke('create_workspace', { name });

@@ -4,8 +4,8 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; frame-src https: http:; connect-src 'self' ipc: http://ipc.localhost https: http:; font-src 'self';"/>
-<title>Govind Browser</title>
-<link rel="icon" type="image/svg+xml" href="assets/icon.svg"/>
+<title>Ritam Browser</title>
+<link rel="icon" type="image/png" href="assets/ritam-icon-32.png"/>
 <link rel="stylesheet" href="styles/tokens.css"/>
 <link rel="stylesheet" href="styles/app.css"/>
 </head>
@@ -14,8 +14,8 @@
 <!-- ════════ Titlebar (frameless custom chrome) ════════ -->
 <header class="titlebar" data-tauri-drag-region>
   <div class="titlebar-brand" data-tauri-drag-region>
-    <span class="logo-dot" aria-hidden="true">G</span>
-    <span class="titlebar-title" data-tauri-drag-region>Govind Browser</span>
+    <img class="logo-dot" src="assets/ritam-icon.png" alt="" aria-hidden="true"/>
+    <span class="titlebar-title" data-tauri-drag-region>Ritam Browser</span>
     <span class="titlebar-sub" data-tauri-drag-region>— Local-first, private by design</span>
     <span class="titlebar-private hidden" id="titlebar-private" title="Private browsing is on for this tab">
       <svg class="icon sm" viewBox="0 0 24 24"><path d="M3.5 10.5c.6-3.1 3.7-5 8.5-5s7.9 1.9 8.5 5h-17Z"/><path d="M2.5 11.5h19M4 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM13 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM11 14h2"/></svg>
@@ -163,6 +163,10 @@
         Private
       </span>
 
+      <button class="profile-chip" id="btn-profile" title="Profiles" aria-label="Profiles" aria-haspopup="true">
+        <span class="profile-avatar" id="profile-avatar">G</span>
+      </button>
+
       <button class="nav-btn" id="btn-theme-toggle" title="Toggle dark/light theme" aria-label="Toggle theme">
         <svg class="icon" id="theme-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       </button>
@@ -193,7 +197,7 @@
     <section class="view view-home" id="view-home" aria-label="Start page">
       <div class="home-inner">
         <div class="home-eyebrow">        <span class="private-icon-badge home-private-icon hidden" id="private-home-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 10.5c.6-3.1 3.7-5 8.5-5s7.9 1.9 8.5 5h-17Z"/><path d="M2.5 11.5h19M4 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM13 13h7v2.5a3.5 3.5 0 0 1-7 0V13ZM11 14h2"/></svg></span>
-        <span id="home-eyebrow-label">Govind Browser</span></div>
+        <span id="home-eyebrow-label">Ritam Browser</span></div>
         <h1 class="home-greeting" id="home-greeting">Good morning.</h1>
         <p class="home-sub">A fast, calm place for the web — your data stays on this machine.</p>
 
@@ -368,7 +372,7 @@
       <div class="menu-sep"></div>
       <button class="menu-item" id="menu-about" role="menuitem">
         <svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
-        About Govind
+        About Ritam
       </button>
     </div>
 
@@ -377,7 +381,24 @@
       <h3><svg class="icon sm" viewBox="0 0 24 24" style="color:var(--zen-sage)"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> <span id="security-title">Connection</span></h3>
       <p id="security-body"></p>
       <button class="btn-secondary" id="security-clear-data" type="button" style="margin-top:10px;">Clear cookies &amp; site data for this site</button>
-      <p style="margin-top:10px; font-size:10px; color:var(--zen-subtle);">Security state is derived from the URL scheme only — Govind does not yet inspect the actual certificate presented by the server.</p>
+      <p style="margin-top:10px; font-size:10px; color:var(--zen-subtle);">Security state is derived from the URL scheme only — Ritam does not yet inspect the actual certificate presented by the server.</p>
+    </div>
+
+    <!-- ── Quick popovers (downloads, history, bookmarks, media, print) ── -->
+    <div class="popover quick-popover hidden" id="quick-popover" role="dialog" aria-label="Quick panel">
+      <div class="quick-head">
+        <h3 id="quick-title">Panel</h3>
+        <button class="icon-btn" id="quick-close" title="Close" aria-label="Close panel">
+          <svg class="icon sm" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="quick-body" id="quick-body"></div>
+      <div class="quick-foot" id="quick-foot"></div>
+    </div>
+
+    <!-- ── Profile switcher (Chrome-style) ── -->
+    <div class="popover profile-popover hidden" id="profile-popover" role="dialog" aria-label="Profiles">
+      <div id="profile-popover-body"></div>
     </div>
 
     <!-- ── Scratchpad panel ── -->

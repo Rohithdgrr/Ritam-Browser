@@ -1,4 +1,4 @@
-/* Govind Browser — Zen theme, vanilla CSS (no build step) */
+/* Ritam Browser — Zen theme, vanilla CSS (no build step) */
 @import "../assets/fonts/fonts.css";
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -48,11 +48,10 @@ button, select { cursor: pointer; }
   -webkit-user-select: none;
 }
 .titlebar-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.logo-dot {
-  width: 19px; height: 19px; border-radius: 50%;
-  background: var(--zen-sage); color: #fff;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 10px; font-weight: 700;
+img.logo-dot {
+  width: 19px; height: 19px; border-radius: 5px;
+  display: block; object-fit: cover; flex: 0 0 auto;
+  background: var(--zen-surface);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 .titlebar-title { font-size: 12px; font-weight: 600; letter-spacing: -0.01em; }
@@ -639,6 +638,87 @@ button, select { cursor: pointer; }
   width: 320px; background: var(--zen-card); border: 1px solid var(--zen-border);
   border-radius: var(--radius-md); box-shadow: var(--shadow-float); padding: 14px;
 }
+/* ============ Profiles ============ */
+.profile-chip {
+  width: 28px; height: 28px; border-radius: 50%; padding: 0; margin-left: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--zen-border-dark);
+}
+.profile-chip:hover { border-color: var(--zen-sage); }
+.profile-avatar {
+  width: 24px; height: 24px; border-radius: 50%; color: #fff; font-weight: 600;
+  font-size: 11px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--zen-sage); font-family: var(--font-sans); line-height: 1;
+}
+.profile-avatar.lg { width: 56px; height: 56px; font-size: 22px; }
+.profile-avatar.sm { width: 22px; height: 22px; font-size: 10px; }
+.profile-popover { width: 320px; left: auto; right: 58px; padding: 10px; max-height: 70vh; overflow-y: auto; }
+.profile-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 16px 12px; border-radius: var(--radius-md);
+  background: var(--zen-surface); border: 1px solid var(--zen-border); margin-bottom: 8px;
+}
+.profile-card strong { font-size: 13px; }
+.profile-email { font-size: 10.5px; color: var(--zen-subtle); font-family: var(--font-mono); }
+.profile-actions { display: flex; flex-direction: column; gap: 2px; }
+.profile-action {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 7px 8px; border-radius: 8px; font-size: 12px; color: var(--zen-text); background: none;
+}
+.profile-action:hover { background: var(--zen-card); }
+.profile-list-label {
+  margin: 10px 4px 4px; font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--zen-subtle);
+}
+.profile-list { display: flex; flex-direction: column; gap: 1px; }
+.profile-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px;
+  border-radius: 8px; text-align: left; background: none;
+}
+.profile-row:hover:not(:disabled) { background: var(--zen-card); }
+.profile-row.current { opacity: .75; }
+.profile-row-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.profile-row-name { font-size: 12px; font-weight: 500; }
+.profile-row-email { font-size: 10px; color: var(--zen-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-current { font-size: 9px; color: var(--zen-sage-dark); text-transform: uppercase; letter-spacing: .06em; }
+.profile-empty { font-size: 11px; color: var(--zen-subtle); margin: 6px 4px; }
+.profile-form { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+.profile-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--zen-muted); }
+.profile-form input {
+  height: 30px; padding: 0 9px; font-size: 12px; color: var(--zen-text);
+  background: var(--zen-card); border: 1px solid var(--zen-border-dark); border-radius: 7px;
+}
+.profile-form input:focus { border-color: var(--zen-sage); outline: none; }
+.profile-optional { color: var(--zen-subtle); font-size: 10px; }
+.profile-form-actions { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* ============ Quick popovers ============ */
+.quick-popover { width: 360px; max-width: calc(100vw - 24px); left: auto; right: 58px; padding: 0; overflow: hidden; }
+.quick-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-bottom: 1px solid var(--zen-border);
+}
+.quick-head h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--zen-muted); }
+.quick-body { max-height: 320px; overflow-y: auto; padding: 4px; }
+.quick-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 12px; border-top: 1px solid var(--zen-border);
+}
+.quick-row {
+  display: flex; flex-direction: column; gap: 1px; width: 100%;
+  padding: 7px 9px; border-radius: 8px; text-align: left; background: none;
+}
+.quick-row:hover { background: var(--zen-card); }
+.quick-row-title { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-row-meta { font-size: 10px; color: var(--zen-subtle); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-empty { padding: 18px 10px; text-align: center; font-size: 11px; color: var(--zen-subtle); }
+.quick-media-row { display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 9px; border-radius: 8px; }
+.quick-media-row:hover { background: var(--zen-card); }
+.quick-media-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.quick-print { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.quick-print p { font-size: 11.5px; color: var(--zen-muted); line-height: 1.55; }
+.quick-hint { font-size: 10px; color: var(--zen-subtle); }
+
 .popover h3 { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 .popover p { font-size: 11px; color: var(--zen-muted); line-height: 1.6; margin-top: 8px; }
 .popover code { font-family: var(--font-mono); font-size: 10px; background: var(--zen-surface); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
@@ -893,7 +973,13 @@ button, select { cursor: pointer; }
 .internal-empty { padding: 60px 20px; text-align: center; color: var(--zen-subtle); font-size: 13px; }
 
 /* Settings cards */
-.settings-cards { max-width: 780px; display: flex; flex-direction: column; gap: 16px; }
+.settings-cards { max-width: 780px; display: flex; flex-direction: column; gap: 26px; }
+.settings-section { scroll-margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.settings-section-title {
+  font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--zen-subtle); font-family: var(--font-mono); font-weight: 500;
+  padding-bottom: 2px; border-bottom: 1px solid var(--zen-border);
+}
 .settings-card {
   background: var(--zen-card); border: 1px solid var(--zen-border);
   border-radius: var(--radius-lg); padding: 6px 20px; box-shadow: var(--shadow-subtle);
@@ -1075,13 +1161,46 @@ body.guest-mode .omnibar:focus-within { box-shadow: 0 0 0 3px var(--zen-private-
   .palette-foot { flex-wrap: wrap; }
 }
 
+/* Phone-sized windows: panels become bottom sheets so they never sit off-screen. */
+@media (max-width: 520px) {
+  .quick-popover, .profile-popover {
+    position: fixed !important;
+    left: 10px !important;
+    right: 10px !important;
+    top: auto !important;
+    bottom: 10px !important;
+    width: auto !important;
+    max-width: none;
+    max-height: 70vh;
+  }
+  .quick-body { max-height: min(320px, 46vh); }
+  .internal-header { padding: 12px 12px 10px; }
+  .internal-header h1 { font-size: 20px; }
+  .internal-body { padding: 12px 12px 32px; }
+  .nav-btn { width: 30px; height: 34px; }
+  .titlebar-sub { display: none; }
+  #omnibar-copy { display: none; }
+  /* The toolbar has more buttons than fit here; these two live on the menu /
+     settings page anyway, so drop them rather than overflow the window. */
+  #btn-media-controls, #btn-theme-toggle { display: none; }
+  .internal-row { flex-wrap: wrap; row-gap: 2px; }
+  .internal-row .row-time { min-width: 0; }
+  .settings-section-title { font-size: 15px; }
+  .home-greeting { font-size: clamp(30px, 11vw, 40px); }
+  .home-fav-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .menu { right: 6px; left: 6px !important; }
+  .modal { max-height: 94%; }
+}
+
 @media (max-width: 420px) {
   .titlebar { padding-left: 9px; }
   .titlebar-sub { display: none; }
   .titlebar-title { font-size: 11.5px; }
   .window-controls button { width: 34px; padding: 0; }
   #omnibar-copy { display: none; }
-  .toolbar .omnibar-engine-select { flex-basis: 68px; max-width: 68px; font-size: 10px; }
+  /* The address field gets the whole bar: the engine picker is in Settings. */
+  .toolbar .omnibar-engine-select { display: none; }
+  .titlebar-title { font-size: 12px; }
   .toolbar { gap: 3px; }
   .nav-btn { width: 34px; }
   .private-chip { width: 32px; justify-content: center; padding: 0; font-size: 0; }

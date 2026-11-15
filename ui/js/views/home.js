@@ -13,7 +13,7 @@ export async function renderHome() {
   const greet = $('#home-greeting');
   if (greet) greet.textContent = greeting();
   const eyebrow = $('#home-eyebrow-label');
-  if (eyebrow) eyebrow.textContent = isPrivate ? 'Private browsing' : 'Govind Browser';
+  if (eyebrow) eyebrow.textContent = isPrivate ? 'Private browsing' : 'Ritam Browser';
   $('#private-home-icon')?.classList.toggle('hidden', !isPrivate);
   const subtitle = $('.home-sub');
   if (subtitle) {

@@ -92,7 +92,7 @@ export async function renderInternalPage() {
   host.innerHTML = `
     <div class="internal-shell">
       <nav class="internal-nav" aria-label="Internal pages">
-        <div class="internal-nav-brand"><span class="logo-dot" aria-hidden="true">G</span> Govind</div>
+        <div class="internal-nav-brand"><img class="logo-dot" src="assets/ritam-icon.png" alt="" aria-hidden="true"/> Ritam</div>
         ${NAV_ITEMS.map((item) => `
           <button class="internal-nav-item ${item.page === page ? 'active' : ''}" data-internal-page="${item.page}">
             ${item.icon}<span>${item.label}</span>
@@ -321,7 +321,7 @@ async function renderReadingListPage() {
   if (!groups) return;
   if (rows.length === 0) {
     groups.innerHTML = `<div class="internal-empty">
-      <p>${query ? 'Nothing in your reading list matches.' : 'Your reading list is empty. Use “Save page for later” in the ⋯ menu to keep an article here — Govind stores an offline text copy too.'}</p>
+      <p>${query ? 'Nothing in your reading list matches.' : 'Your reading list is empty. Use “Save page for later” in the ⋯ menu to keep an article here — Ritam stores an offline text copy too.'}</p>
     </div>`;
     updateHeaderActions();
     return;
@@ -366,7 +366,7 @@ function renderTaskManagerPage() {
           </div>`;
         }).join('')}
       </div></section>
-      <p class="s-desc" style="padding:0 4px">Shows per-tab state Govind can observe (audio, reader mode, private). The WebView2 engine does not expose per-tab CPU or memory figures.</p>`;
+      <p class="s-desc" style="padding:0 4px">Shows per-tab state Ritam can observe (audio, reader mode, private). The WebView2 engine does not expose per-tab CPU or memory figures.</p>`;
   updateHeaderActions();
 }
 
@@ -413,9 +413,9 @@ function renderUnsafePage(container) {
             <div style="display:flex;gap:12px;align-items:flex-start;">
               <span style="color:var(--zen-danger,#c0392b);flex:none">${ICON.shield}</span>
               <div>
-                <h3 style="margin:0 0 8px;">This site is on Govind's blocklist</h3>
+                <h3 style="margin:0 0 8px;">This site is on Ritam's blocklist</h3>
                 <p class="s-desc" style="margin:0 0 6px;">${escapeHtml(store.pendingUnsafeReason ?? '')}</p>
-                <p class="s-desc" style="margin:0 0 16px;">Govind stopped the navigation as a safety precaution. If you are certain this site is safe, you can visit it anyway — the decision applies to this session only.</p>
+                <p class="s-desc" style="margin:0 0 16px;">Ritam stopped the navigation as a safety precaution. If you are certain this site is safe, you can visit it anyway — the decision applies to this session only.</p>
                 <div class="row-domain" style="margin-bottom:16px;">${escapeHtml(displayUrl(target))}</div>
                 <button class="btn-primary" id="unsafe-go" type="button">Back to safety</button>
                 <button class="btn-secondary" id="unsafe-anyway" type="button">Visit anyway</button>

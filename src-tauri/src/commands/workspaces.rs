@@ -1,4 +1,5 @@
 use crate::db::{now_ms, DbState};
+use crate::commands::profiles::resolve_active_profile;
 use crate::error::AppError;
 use crate::models::{DeleteWorkspaceResult, Workspace};
 use crate::webview::TabWebviewManager;
@@ -37,13 +38,20 @@ pub fn create_workspace(db: State<'_, DbState>, name: String, color: Option<Stri
     let name = clean_name(&name)?;
     let color = clean_color(color);
     let conn = db.conn();
-    let sort_order: i64 =
-        conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0))?;
+    let profile_id = resolve_active_profile(&conn);
+    let sort_order: i64 = match &profile_id {
+        Some(profile) => conn.query_row(
+            "SELECT COUNT(*) FROM workspaces WHERE profile_id = ?1",
+            params![profile],
+            |r| r.get(0),
+        )?,
+        None => conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0))?,
+    };
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
     conn.execute(
-        "INSERT INTO workspaces (id, name, color, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, name, color, sort_order, now],
+        "INSERT INTO workspaces (id, name, color, sort_order, created_at, profile_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, name, color, sort_order, now, profile_id],
     )?;
     Ok(Workspace { id, name, color, sort_order, created_at: now })
 }
@@ -51,8 +59,18 @@ pub fn create_workspace(db: State<'_, DbState>, name: String, color: Option<Stri
 #[tauri::command]
 pub fn list_workspaces(db: State<'_, DbState>) -> Result<Vec<Workspace>, AppError> {
     let conn = db.conn();
-    let mut stmt = conn.prepare(&format!("SELECT {WS_COLS} FROM workspaces ORDER BY sort_order ASC"))?;
-    let rows = stmt.query_map([], row_to_workspace)?;
+    // Only the active profile's workspaces are listed; tabs follow via workspace.
+    let profile_id = resolve_active_profile(&conn);
+    let mut stmt = match &profile_id {
+        Some(_profile) => conn.prepare(&format!(
+            "SELECT {WS_COLS} FROM workspaces WHERE profile_id = ?1 ORDER BY sort_order ASC"
+        ))?,
+        None => conn.prepare(&format!("SELECT {WS_COLS} FROM workspaces ORDER BY sort_order ASC"))?,
+    };
+    let rows = match &profile_id {
+        Some(profile) => stmt.query_map(params![profile], row_to_workspace)?,
+        None => stmt.query_map([], row_to_workspace)?,
+    };
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
@@ -88,7 +106,21 @@ pub fn delete_workspace(
 ) -> Result<DeleteWorkspaceResult, AppError> {
     let conn = db.conn();
 
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0))?;
+    let profile: Option<String> = conn
+        .query_row(
+            "SELECT profile_id FROM workspaces WHERE id = ?1",
+            params![workspace_id],
+            |r| r.get(0),
+        )
+        .ok();
+    let count: i64 = match &profile {
+        Some(id) => conn.query_row(
+            "SELECT COUNT(*) FROM workspaces WHERE profile_id = ?1",
+            params![id],
+            |r| r.get(0),
+        )?,
+        None => conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0))?,
+    };
     if count <= 1 {
         return Err(AppError::InvalidInput("cannot delete the last workspace".into()));
     }
@@ -113,11 +145,18 @@ pub fn delete_workspace(
 
     conn.execute("DELETE FROM workspaces WHERE id = ?1", params![workspace_id])?;
 
-    let fallback: String = conn.query_row(
-        "SELECT id FROM workspaces ORDER BY sort_order ASC LIMIT 1",
-        [],
-        |r| r.get(0),
-    )?;
+    let fallback: String = match &profile {
+        Some(id) => conn.query_row(
+            "SELECT id FROM workspaces WHERE profile_id = ?1 ORDER BY sort_order ASC LIMIT 1",
+            params![id],
+            |r| r.get(0),
+        )?,
+        None => conn.query_row(
+            "SELECT id FROM workspaces ORDER BY sort_order ASC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )?,
+    };
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_workspace_id', ?1)",
         params![fallback],

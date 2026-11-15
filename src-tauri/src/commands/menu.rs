@@ -35,7 +35,7 @@ pub fn show_more_menu(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
         .text("menu-clear-data", "Delete browsing data...")
         .text("menu-settings", "Settings...")
         .separator()
-        .text("menu-about", "About Govind")
+        .text("menu-about", "About Ritam")
         .build()
         .map_err(|error| error.to_string())?;
 

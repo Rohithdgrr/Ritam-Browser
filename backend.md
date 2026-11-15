@@ -30,6 +30,9 @@ SQLite (db.rs, migrations/)   TabWebviewManager (webview.rs)
   native menus.
 - `src-tauri/src/webview.rs`: creates, positions, shows, hides, navigates, and
   closes native child webviews; handles page events and browser integrations.
+- `src-tauri/src/commands/profiles.rs`: local profiles (name, optional email
+  label, colour), the default-profile bootstrap, and the workspace scoping that
+  gives each profile its own tab session.
 - `src-tauri/src/adblocker.rs`: network and cosmetic filter engine (Brave's
   `adblock` crate), the bundled list snapshots, the engine cache, per-list
   upstream refresh, and the block / stub / re-target decision for a request.
@@ -59,6 +62,26 @@ Private tabs use the WebView2 InPrivate profile and are not written to the
 application's tab, history, or download records. This does not make a private
 session invisible to websites, network providers, or operating-system
 monitoring. Regular tabs share the default webview profile.
+
+Profiles are local records in the `profiles` table; `workspaces.profile_id`
+links a tab session to one profile, and `settings.active_profile_id` selects the
+active one. Rows written before profiles existed are claimed by the default
+profile on first launch. The `email` column is a display label only — there is
+no account sign-in, token, or network call attached to it, and bookmarks,
+history, downloads and the reading list stay global across profiles.
+
+## Supported platforms and releases
+
+The engine seam is Tauri's multi-webview API (`Window::add_child`), which Tauri
+exposes only for desktop targets. Windows uses WebView2 (plus the native request
+hook in `webview2_blocker.rs`); Linux uses WebKitGTK. Android/iOS builds are
+not supported: the crate does not compile for those targets, and the tab
+manager, network blocker and keyboard handling all assume a desktop window.
+
+Releases are built by `.github/workflows/release.yml` on a `v*` tag: Windows
+(NSIS `.exe`, MSI) and Ubuntu (`.deb`, `.AppImage`), uploaded to the GitHub
+release. `.github/workflows/ci.yml` runs both test suites on Windows and Ubuntu
+for pushes and pull requests.
 
 Small pieces of session state live in the same settings table so they survive a
 restart: `recently_closed` (the last 20 closed tabs, private tabs never

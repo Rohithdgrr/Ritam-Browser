@@ -16,7 +16,7 @@ use webview::TabWebviewManager;
 
 /// Browser shortcuts that must work even while a *page* has the keyboard focus
 /// (a child webview swallows key events, so the shell never sees them).
-/// The handler only acts while the Govind window is focused.
+/// The handler only acts while the Ritam window is focused.
 const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+T", "new-tab"),
     ("Ctrl+Shift+N", "new-private-tab"),
@@ -232,6 +232,11 @@ pub fn run() {
             commands::tabs::close_other_tabs,
             commands::tabs::sync_tab_windows,
             // Workspaces
+            commands::profiles::list_profiles,
+            commands::profiles::create_profile,
+            commands::profiles::update_profile,
+            commands::profiles::delete_profile,
+            commands::profiles::set_active_profile,
             commands::workspaces::create_workspace,
             commands::workspaces::list_workspaces,
             commands::workspaces::rename_workspace,
@@ -272,5 +277,5 @@ pub fn run() {
             commands::settings::get_app_info,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Govind Browser");
+        .expect("error while running Ritam Browser");
 }

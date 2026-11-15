@@ -2,12 +2,22 @@
 -- Applied at every startup via CREATE TABLE IF NOT EXISTS; safe to re-run.
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS profiles (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  email      TEXT NOT NULL DEFAULT '',
+  color      TEXT NOT NULL DEFAULT '#4A6B5D',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS workspaces (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
   color      TEXT NOT NULL DEFAULT '#4A6B5D',
   sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  profile_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tabs (

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Govind Browser",
+  "productName": "Ritam Browser",
   "version": "0.1.0",
   "identifier": "com.govind.browser",
   "build": {
@@ -11,11 +11,11 @@
     "windows": [
       {
         "label": "main",
-        "title": "Govind Browser",
+        "title": "Ritam Browser",
         "width": 1280,
         "height": 800,
-        "minWidth": 880,
-        "minHeight": 560,
+        "minWidth": 480,
+        "minHeight": 420,
         "decorations": false,
         "resizable": true,
         "fullscreen": false,
@@ -28,10 +28,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": ["nsis", "msi", "deb", "appimage"],
     "category": "Productivity",
     "shortDescription": "A fast, calm, local-first browser",
-    "longDescription": "Govind Browser — a fast, calm, local-first browser. Milestone 1: browser shell with tabs, workspaces, bookmarks, history, scratchpad, downloads and privacy controls. No telemetry, no accounts.",
+    "longDescription": "Ritam Browser — a fast, calm, local-first browser. Milestone 1: browser shell with tabs, workspaces, bookmarks, history, scratchpad, downloads and privacy controls. No telemetry, no accounts.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

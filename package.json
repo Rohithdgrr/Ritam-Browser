@@ -1,8 +1,8 @@
 {
-  "name": "govind-browser",
+  "name": "ritam-browser",
   "version": "0.1.0",
   "private": true,
-  "description": "Govind Browser — a fast, calm, local-first browser. Tauri 2 + Rust shell, plain HTML/CSS/JS UI.",
+  "description": "Ritam Browser \u00e2\u20ac\u201d a fast, calm, local-first browser. Tauri 2 + Rust shell, plain HTML/CSS/JS UI.",
   "type": "module",
   "scripts": {
     "dev": "node tools/serve.mjs",

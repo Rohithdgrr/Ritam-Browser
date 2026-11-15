@@ -382,7 +382,7 @@ impl NetworkBlocker {
     fs::create_dir_all(directory)
       .map_err(|error| format!("create filter-list cache: {error}"))?;
     let client = reqwest::blocking::Client::builder()
-      .user_agent("GovindBrowser/0.1 (filter-list updater)")
+      .user_agent("RitamBrowser/0.1 (filter-list updater)")
       .timeout(Duration::from_secs(30))
       .redirect(reqwest::redirect::Policy::none())
       .build()

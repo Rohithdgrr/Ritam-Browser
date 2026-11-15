@@ -17,6 +17,32 @@ impl DbState {
     }
 }
 
+pub fn setting(conn: &Connection, key: &str) -> Option<String> {
+    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
+        .ok()
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        [key, value],
+    )?;
+    Ok(())
+}
+
+pub fn active_profile_id(conn: &Connection) -> Option<String> {
+    setting(conn, "active_profile_id")
+}
+
+fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    Ok(names
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|name| name == column))
+}
+
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -38,14 +64,15 @@ pub fn init(app: &AppHandle) -> Result<DbState, AppError> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute_batch(SCHEMA)?;
-    let has_group_name = {
-        let mut stmt = conn.prepare("PRAGMA table_info(tabs)")?;
-        let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
-        columns.collect::<Result<Vec<_>, _>>()?.iter().any(|name| name == "group_name")
-    };
-    if !has_group_name {
+    if !has_column(&conn, "tabs", "group_name")? {
         conn.execute("ALTER TABLE tabs ADD COLUMN group_name TEXT", [])?;
     }
+    // Profiles own workspaces; databases created before profiles existed get the
+    // column here and are claimed by the default profile below.
+    if !has_column(&conn, "workspaces", "profile_id")? {
+        conn.execute("ALTER TABLE workspaces ADD COLUMN profile_id TEXT", [])?;
+    }
+    crate::commands::profiles::ensure_default_profile(&conn)?;
 
     // First-run seeding: one workspace, no tabs (a home tab opens in the UI),
     // three removable favorites.

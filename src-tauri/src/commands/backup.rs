@@ -526,8 +526,8 @@ pub fn save_encrypted_browser_backup(
     let file_path = app
         .dialog()
         .file()
-        .add_filter("Encrypted Govind backup", &["gbak"])
-        .set_file_name("govind-browser-backup.gbak")
+        .add_filter("Encrypted Ritam backup", &["gbak"])
+        .set_file_name("ritam-browser-backup.gbak")
         .blocking_save_file()
         .ok_or_else(|| AppError::InvalidInput("backup export cancelled".into()))?;
     let path = file_path
@@ -544,7 +544,7 @@ pub fn open_encrypted_browser_backup(app: AppHandle) -> Result<String, AppError>
     let file_path = app
         .dialog()
         .file()
-        .add_filter("Encrypted Govind backup", &["gbak", "json"])
+        .add_filter("Encrypted Ritam backup", &["gbak", "json"])
         .blocking_pick_file()
         .ok_or_else(|| AppError::InvalidInput("backup import cancelled".into()))?;
     let path = file_path

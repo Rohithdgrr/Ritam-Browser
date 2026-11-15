@@ -1,6 +1,6 @@
 # Feature List
 
-Govind is a local-first desktop browser built with Tauri 2, Rust, and a
+Ritam is a local-first desktop browser built with Tauri 2, Rust, and a
 vanilla HTML/CSS/JavaScript interface. This list describes the current
 implementation; the product roadmap in `docs/PRD_v2.md` is aspirational and
 does not imply that every planned feature is available.
@@ -22,6 +22,13 @@ does not imply that every planned feature is available.
 - Built-in PDF display where the system webview supports it.
 - Page inspection through the webview's DevTools support.
 
+### Profiles
+
+- Local profiles with a name, an optional Gmail-style label, and a colour; each
+  profile has its own workspaces and tabs.
+- Chrome-style profile chip and switcher in the toolbar, with inline creation
+  and deletion of profiles.
+
 ### Organization and productivity
 
 - Workspaces, bookmarks, favorites, and a customizable search URL template.
@@ -30,6 +37,12 @@ does not imply that every planned feature is available.
 - Recently closed tabs, persisted across restarts (last 20; private tabs are
   never recorded).
 - Tab search / quick switcher and command palette.
+- Anchored quick popovers for downloads, history, bookmarks, media controls and
+  print, each linking to its full internal page.
+- A single settings page (`govind://settings`) with every section, a jump rail
+  and a filter box.
+- Responsive layout: the sidebar becomes a drawer below 700px, quick panels
+  become bottom sheets below 520px, and the window can shrink to 480×420.
 - Reader mode, Read Aloud, and page translation through a configured
   LibreTranslate-compatible service.
 - Picture-in-Picture, audio indicators and per-site remembered mute, forced
@@ -54,7 +67,12 @@ does not imply that every planned feature is available.
 ## Limitations and not supported
 
 - Regular tabs share the same webview profile; per-tab cookie/identity
-  isolation is not available.
+  isolation is not available. Profiles separate tab sessions but still share
+  the cookie jar, bookmarks, history, downloads and the reading list.
+- Profile emails are local labels: Ritam has no account sign-in, no sync and
+  sends nothing to Google.
+- No Android or iOS app. The tab engine relies on Tauri's desktop-only
+  multi-webview API, so mobile needs a separate single-webview shell.
 - The app does not inspect TLS certificates. The security indicator is based
   on the URL scheme and is labeled accordingly.
 - The system webview does not expose Chromium DevTools Protocol, extensions,

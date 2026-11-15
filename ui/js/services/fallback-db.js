@@ -1,5 +1,5 @@
 /**
- * Govind Browser — localStorage fallback implementing the exact IPC command
+ * Ritam Browser — localStorage fallback implementing the exact IPC command
  * surface of the Rust backend, so the whole app works in a plain browser
  * (this preview) as well as inside Tauri. In Tauri the service layer routes
  * to real SQLite-backed commands instead of touching storage here.
@@ -27,6 +27,7 @@ const KNOWN_SETTINGS = {
   force_dark_websites: { type: 'bool' },
   translation_endpoint: { type: 'translation-endpoint' },
   active_workspace_id: { type: 'string' },
+  active_profile_id: { type: 'string' },
   spellcheck: { type: 'bool' },
   do_not_track: { type: 'bool' },
   safe_browsing: { type: 'bool' },
@@ -48,6 +49,7 @@ const DEFAULT_SETTINGS = {
   force_dark_websites: 'false',
   translation_endpoint: '',
   active_workspace_id: '',
+  active_profile_id: '',
   spellcheck: 'true',
   do_not_track: 'false',
   safe_browsing: 'true',
@@ -84,10 +86,30 @@ export function createFallbackDb(storage) {
     removeItem: (k) => void mem.delete(k),
   };
 
+  /** Databases written before profiles existed get a default profile here. */
+  function withProfiles(db) {
+    if (!Array.isArray(db.profiles) || db.profiles.length === 0) {
+      const profileId = id();
+      db.profiles = [{ id: profileId, name: 'Personal', email: '', color: '#4A6B5D', sort_order: 0, created_at: now() }];
+      db.settings = { ...DEFAULT_SETTINGS, ...db.settings, active_profile_id: profileId };
+      db.workspaces = (db.workspaces ?? []).map((ws) => ({ ...ws, profile_id: ws.profile_id ?? profileId }));
+    }
+    if (!db.settings.active_profile_id || !db.profiles.some((p) => p.id === db.settings.active_profile_id)) {
+      db.settings.active_profile_id = db.profiles[0].id;
+    }
+    db.workspaces = (db.workspaces ?? []).map((ws) => ({
+      ...ws,
+      profile_id: ws.profile_id ?? db.settings.active_profile_id,
+    }));
+    return db;
+  }
+
+  const activeProfile = (db) => withProfiles(db).settings.active_profile_id;
+
   function load() {
     try {
       const raw = store.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) return withProfiles(JSON.parse(raw));
     } catch { /* corrupted → reseed */ }
     return seed();
   }
@@ -97,9 +119,11 @@ export function createFallbackDb(storage) {
   }
   function seed() {
     const wsId = id();
+    const profileId = id();
     const db = {
       version: 1,
-      workspaces: [{ id: wsId, name: 'Personal', color: '#4A6B5D', sort_order: 0, created_at: now() }],
+      profiles: [{ id: profileId, name: 'Personal', email: '', color: '#4A6B5D', sort_order: 0, created_at: now() }],
+      workspaces: [{ id: wsId, name: 'Personal', color: '#4A6B5D', sort_order: 0, created_at: now(), profile_id: profileId }],
       tabs: [],
       bookmarks: [
         // Seed a few favorite starter sites (user can remove any of them)
@@ -111,7 +135,7 @@ export function createFallbackDb(storage) {
       notes: [],
       downloads: [],
       reading_list: [],
-      settings: { ...DEFAULT_SETTINGS, active_workspace_id: wsId },
+      settings: { ...DEFAULT_SETTINGS, active_workspace_id: wsId, active_profile_id: profileId },
       site_permissions: [],
     };
     return save(db);
@@ -219,14 +243,20 @@ export function createFallbackDb(storage) {
       const clean = String(name ?? '').trim().slice(0, 80);
       if (!clean) throw new Error('workspace name required');
       const db = load();
-      const ws = { id: id(), name: clean, color: /^#[0-9a-f]{6}$/i.test(color ?? '') ? color : '#4A6B5D', sort_order: db.workspaces.length, created_at: now() };
+      const profileId = activeProfile(db);
+      const sortOrder = db.workspaces.filter((w) => w.profile_id === profileId).length;
+      const ws = { id: id(), name: clean, color: /^#[0-9a-f]{6}$/i.test(color ?? '') ? color : '#4A6B5D', sort_order: sortOrder, created_at: now(), profile_id: profileId };
       db.workspaces.push(ws);
       db.settings.active_workspace_id = ws.id;
       save(db);
       return ws;
     },
     async list_workspaces() {
-      return [...load().workspaces].sort((a, b) => a.sort_order - b.sort_order);
+      const db = load();
+      const profileId = activeProfile(db);
+      return db.workspaces
+        .filter((w) => w.profile_id === profileId)
+        .sort((a, b) => a.sort_order - b.sort_order);
     },
     async rename_workspace({ workspace_id, name }) {
       const clean = String(name ?? '').trim().slice(0, 80);
@@ -240,15 +270,88 @@ export function createFallbackDb(storage) {
     },
     async delete_workspace({ workspace_id }) {
       const db = load();
-      if (db.workspaces.length <= 1) throw new Error('cannot delete the last workspace');
       const ws = db.workspaces.find((w) => w.id === workspace_id);
       if (!ws) throw new Error('workspace not found');
+      const siblings = db.workspaces.filter((w) => w.profile_id === ws.profile_id);
+      if (siblings.length <= 1) throw new Error('cannot delete the last workspace');
       db.tabs = db.tabs.filter((t) => t.workspace_id !== workspace_id);
       db.notes = db.notes.filter((n) => n.workspace_id !== workspace_id);
       db.workspaces = db.workspaces.filter((w) => w.id !== workspace_id);
-      if (db.settings.active_workspace_id === workspace_id) db.settings.active_workspace_id = db.workspaces[0].id;
+      if (db.settings.active_workspace_id === workspace_id) {
+        db.settings.active_workspace_id = siblings.find((w) => w.id !== workspace_id).id;
+      }
       save(db);
       return { deleted_id: workspace_id, active_workspace_id: db.settings.active_workspace_id };
+    },
+
+    // ── Profiles ────────────────────────────────────────────
+    async list_profiles() {
+      const db = load();
+      return {
+        profiles: [...db.profiles].sort((a, b) => a.sort_order - b.sort_order),
+        active_profile_id: activeProfile(db),
+      };
+    },
+    async create_profile({ name, email, color } = {}) {
+      const clean = String(name ?? '').trim().slice(0, 80);
+      if (!clean) throw new Error('profile name required');
+      const address = String(email ?? '').trim();
+      if (address && !/^[^\s@]+@[^\s@.]+\.[^\s@]+$/.test(address)) {
+        throw new Error('profile email is not a valid address');
+      }
+      const db = load();
+      const profileId = id();
+      db.profiles.push({
+        id: profileId, name: clean, email: address,
+        color: /^#[0-9a-f]{6}$/i.test(color ?? '') ? color : '#4A6B5D',
+        sort_order: db.profiles.length, created_at: now(),
+      });
+      db.workspaces.push({ id: id(), name: 'Personal', color: '#4A6B5D', sort_order: 0, created_at: now(), profile_id: profileId });
+      save(db);
+      return db.profiles.find((p) => p.id === profileId);
+    },
+    async update_profile({ profile_id, name, email, color } = {}) {
+      const db = load();
+      const profile = db.profiles.find((p) => p.id === profile_id);
+      if (!profile) throw new Error('profile not found');
+      if (name !== undefined) {
+        const clean = String(name).trim().slice(0, 80);
+        if (!clean) throw new Error('profile name required');
+        profile.name = clean;
+      }
+      if (email !== undefined) {
+        const address = String(email).trim();
+        if (address && !/^[^\s@]+@[^\s@.]+\.[^\s@]+$/.test(address)) throw new Error('profile email is not a valid address');
+        profile.email = address;
+      }
+      if (color !== undefined && /^#[0-9a-f]{6}$/i.test(color)) profile.color = color;
+      save(db);
+      return profile;
+    },
+    async delete_profile({ profile_id } = {}) {
+      const db = load();
+      if (db.profiles.length <= 1) throw new Error('cannot delete the last profile');
+      if (!db.profiles.some((p) => p.id === profile_id)) throw new Error('profile not found');
+      const workspaceIds = db.workspaces.filter((w) => w.profile_id === profile_id).map((w) => w.id);
+      db.tabs = db.tabs.filter((t) => !workspaceIds.includes(t.workspace_id));
+      db.notes = db.notes.filter((n) => !workspaceIds.includes(n.workspace_id));
+      db.workspaces = db.workspaces.filter((w) => w.profile_id !== profile_id);
+      db.profiles = db.profiles.filter((p) => p.id !== profile_id);
+      if (db.settings.active_profile_id === profile_id) {
+        db.settings.active_profile_id = db.profiles[0].id;
+        db.settings.active_workspace_id = db.workspaces.find((w) => w.profile_id === db.profiles[0].id)?.id ?? null;
+      }
+      save(db);
+      return { deleted_id: profile_id };
+    },
+    async set_active_profile({ profile_id } = {}) {
+      const db = load();
+      if (!db.profiles.some((p) => p.id === profile_id)) throw new Error('profile not found');
+      db.settings.active_profile_id = profile_id;
+      db.settings.active_workspace_id =
+        db.workspaces.find((w) => w.profile_id === profile_id)?.id ?? db.settings.active_workspace_id;
+      save(db);
+      return { active_profile_id: profile_id, active_workspace_id: db.settings.active_workspace_id };
     },
     async set_active_workspace({ workspace_id }) {
       const db = load();
@@ -670,7 +773,7 @@ export function createFallbackDb(storage) {
     // ── App info ────────────────────────────────────────────
     async get_app_info() {
       return {
-        name: 'Govind Browser', version: '0.1.0', milestone: 'Milestone 1 — Browser shell',
+        name: 'Ritam Browser', version: '0.1.0', milestone: 'Milestone 1 — Browser shell',
         engine: 'Browser preview (iframe) · Tauri 2 + system WebView2 in the installed app',
         storage: 'localStorage (fallback) · SQLite in the installed app',
         telemetry: 'disabled',

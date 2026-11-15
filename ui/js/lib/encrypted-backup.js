@@ -74,7 +74,7 @@ export async function decryptBrowserBackup(file, passphrase) {
   try {
     envelope = JSON.parse(file);
   } catch {
-    throw new Error('This is not a valid Govind encrypted backup.');
+    throw new Error('This is not a valid Ritam encrypted backup.');
   }
   if (
     envelope?.format !== FORMAT

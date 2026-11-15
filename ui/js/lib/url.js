@@ -1,5 +1,5 @@
 /**
- * Govind Browser — address-bar input normalization.
+ * Ritam Browser — address-bar input normalization.
  * Pure functions, no DOM. Unit-tested with node:test (tests/url.test.mjs).
  *
  * Rules:

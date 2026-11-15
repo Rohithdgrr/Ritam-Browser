@@ -1,5 +1,5 @@
 /**
- * Govind Browser — central application state & actions (no framework).
+ * Ritam Browser — central application state & actions (no framework).
  * Views import { store } and read state; every mutating action returns
  * updated data and the caller re-renders (see views/shell.js#renderAll).
  */

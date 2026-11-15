@@ -1,5 +1,17 @@
 use serde::{Deserialize, Serialize};
 
+/// A local browser profile. `email` is a label only: Ritam never signs in to
+/// an account service.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Profile {
+    pub id: String,
+    pub name: String,
+    pub email: String,
+    pub color: String,
+    pub sort_order: i64,
+    pub created_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,

@@ -303,7 +303,7 @@ pub fn clear_site_permissions(db: State<'_, DbState>, origin: Option<String>) ->
 #[tauri::command]
 pub fn get_app_info() -> AppInfo {
     AppInfo {
-        name: "Govind Browser".to_string(),
+        name: "Ritam Browser".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         milestone: "Milestone 1 — Browser shell".to_string(),
         engine: "System WebView2 via Tauri 2 (interim window-embedded WebViews)".to_string(),

@@ -1,4 +1,4 @@
-/** Govind Browser — bootstrap, event wiring and keyboard shortcuts. */
+/** Ritam Browser — bootstrap, event wiring and keyboard shortcuts. */
 
 import { $, $$, toast } from './lib/dom.js';
 import * as api from './services/ipc.js';
@@ -19,6 +19,8 @@ import { applyTheme } from './views/settings.js';
 import { initPalette, openPalette, closePalette, isPaletteOpen } from './views/palette.js';
 import { reloadWebView, historyWebView } from './views/browser.js';
 import { initOmnibar } from './views/omnibar.js';
+import { initProfiles } from './views/profiles.js';
+import { initQuickPopovers, openQuick } from './views/quick-popovers.js';
 import { isNative } from './services/ipc.js';
 import { displayUrl, HOME_URL, schemeOf, hostOf } from './lib/url.js';
 
@@ -586,6 +588,8 @@ async function boot() {
   wireFindBar();
   wireTabContextMenu();
   wireGlobalEvents();
+  initQuickPopovers();
+  await initProfiles();
 
   initPalette(buildPaletteCommands());
   wireShortcuts();
@@ -625,7 +629,7 @@ function wireToolbar() {
   $('#btn-home')?.addEventListener('click', () => actions.home());
   $('#btn-reader-mode')?.addEventListener('click', () => actions['reader-mode']());
   $('#btn-read-aloud')?.addEventListener('click', () => actions['read-aloud']());
-  $('#btn-media-controls')?.addEventListener('click', () => actions['media-controls']());
+  $('#btn-media-controls')?.addEventListener('click', (event) => openQuick('media', event.currentTarget));
 
   initOmnibar({ onNavigate: doNavigate });
 
@@ -670,13 +674,13 @@ function toggleSecurityPopover(force) {
     if (title && body) {
       if (tab?.url === HOME_URL) {
         title.textContent = 'Internal page';
-        body.innerHTML = 'This is Govind’s built-in start page. It never makes network requests and cannot run remote code.';
+        body.innerHTML = 'This is Ritam’s built-in start page. It never makes network requests and cannot run remote code.';
       } else if (tab?.url.startsWith('govind://')) {
-        title.textContent = 'Govind page';
-        body.innerHTML = `This is a local Govind page (<code>${escapeForPopover(tab.url)}</code>). It is rendered by the app itself and makes no network requests.`;
+        title.textContent = 'Ritam page';
+        body.innerHTML = `This is a local Ritam page (<code>${escapeForPopover(tab.url)}</code>). It is rendered by the app itself and makes no network requests.`;
       } else if (scheme === 'https') {
         title.textContent = 'Encrypted connection (HTTPS)';
-        body.innerHTML = `Traffic to <code>${escapeForPopover(displayUrl(tab.url))}</code> is encrypted in transit. This only reflects the URL scheme — Govind does not yet inspect the actual server certificate.`;
+        body.innerHTML = `Traffic to <code>${escapeForPopover(displayUrl(tab.url))}</code> is encrypted in transit. This only reflects the URL scheme — Ritam does not yet inspect the actual server certificate.`;
       } else if (scheme === 'http') {
         title.textContent = 'Not encrypted (HTTP)';
         body.innerHTML = `Traffic to <code>${escapeForPopover(displayUrl(tab.url))}</code> is sent in cleartext. Avoid entering passwords or other sensitive data on this site.`;
@@ -714,7 +718,7 @@ function wireMenuAndPopover() {
   $('#menu-translate-page')?.addEventListener('click', () => { toggleMenu(false); actions['translate-page'](); });
   $('#menu-read-aloud')?.addEventListener('click', () => { toggleMenu(false); actions['read-aloud'](); });
   $('#menu-fullscreen')?.addEventListener('click', () => { toggleMenu(false); actions.fullscreen(); });
-  $('#menu-print')?.addEventListener('click', () => { toggleMenu(false); actions.print(); });
+  $('#menu-print')?.addEventListener('click', (event) => { toggleMenu(false); openQuick('print', event.currentTarget); });
   $('#menu-clear-data')?.addEventListener('click', () => { toggleMenu(false); openInternal('settings:privacy'); });
   $('#menu-settings')?.addEventListener('click', () => { toggleMenu(false); actions.settings(); });
   $('#menu-about')?.addEventListener('click', () => { toggleMenu(false); openInternal('settings:about'); });
@@ -739,10 +743,11 @@ function wireSidebar() {
   $('#btn-palette')?.addEventListener('click', () => actions.palette());
 
   // Footer buttons open the internal pages
-  $('#btn-bookmarks-panel')?.addEventListener('click', () => actions.bookmarks());
-  $('#btn-history-panel')?.addEventListener('click', () => actions.history());
+  // Rich popovers first, full pages via “Open … page” inside each panel.
+  $('#btn-bookmarks-panel')?.addEventListener('click', (event) => openQuick('bookmarks', event.currentTarget));
+  $('#btn-history-panel')?.addEventListener('click', (event) => openQuick('history', event.currentTarget));
   $('#btn-scratchpad')?.addEventListener('click', () => openPanelWithNav('scratchpad'));
-  $('#btn-downloads-panel')?.addEventListener('click', () => actions.downloads());
+  $('#btn-downloads-panel')?.addEventListener('click', (event) => openQuick('downloads', event.currentTarget));
   $('#btn-settings')?.addEventListener('click', () => actions.settings());
 
   // Workspace creation flow
@@ -1142,5 +1147,5 @@ function buildPaletteCommands() {
 
 boot().catch((err) => {
   console.error('Boot failed:', err);
-  toast('Something went wrong while starting Govind. See console for details.');
+  toast('Something went wrong while starting Ritam. See console for details.');
 });

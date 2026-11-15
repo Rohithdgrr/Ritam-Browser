@@ -53,7 +53,7 @@ export async function renderSettingsPage(container) {
   const category = settingsCategory();
   container.innerHTML = `
     <nav class="internal-nav" aria-label="Settings categories">
-      <div class="internal-nav-brand"><span class="logo-dot" aria-hidden="true">G</span> Settings</div>
+      <div class="internal-nav-brand"><img class="logo-dot" src="assets/ritam-icon.png" alt="" aria-hidden="true"/> Settings</div>
       ${CATEGORIES.map((c) => `
         <button class="internal-nav-item ${c.id === category ? 'active' : ''}" data-settings-category="${c.id}">
           <span>${c.label}</span>
@@ -68,7 +68,7 @@ export async function renderSettingsPage(container) {
     </nav>
     <div class="internal-main">
       <header class="internal-header">
-        <h1>${CATEGORIES.find((c) => c.id === category)?.label ?? 'General'}</h1>
+        <h1>Settings</h1>
         <div class="internal-search">
           <svg class="icon sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
           <input id="settings-search" type="search" spellcheck="false" placeholder="Search settings" aria-label="Search settings" />
@@ -79,12 +79,42 @@ export async function renderSettingsPage(container) {
       </div>
     </div>`;
 
-  await renderCategory(category);
+  await renderAllSections();
   wireSettingsPage(container);
+  // Deep links (govind://settings:privacy) scroll to their section.
+  if (category && category !== 'general') scrollToSection(category);
 }
 
-async function renderCategory(category) {
+/** Every category renders on one page; the rail becomes a jump list. */
+async function renderAllSections() {
   const host = $('#settings-cards');
+  if (!host) return;
+  host.innerHTML = '';
+  for (const category of CATEGORIES) {
+    const section = document.createElement('section');
+    section.className = 'settings-section';
+    section.id = `settings-${category.id}`;
+    section.dataset.section = category.id;
+    const title = document.createElement('h2');
+    title.className = 'settings-section-title';
+    title.textContent = category.label;
+    const body = document.createElement('div');
+    section.append(title, body);
+    host.appendChild(section);
+    await renderCategory(category.id, body);
+  }
+}
+
+function scrollToSection(id) {
+  const section = document.getElementById(`settings-${id}`);
+  if (!section) return;
+  section.scrollIntoView({ block: 'start' });
+  document.querySelectorAll('[data-settings-category]').forEach((item) => {
+    item.classList.toggle('active', item.getAttribute('data-settings-category') === id);
+  });
+}
+
+async function renderCategory(category, host = $('#settings-cards')) {
   if (!host) return;
   const s = await api.getSettings();
 
@@ -93,7 +123,7 @@ async function renderCategory(category) {
       <section class="settings-card">
         <div class="setting-row">
           <div><div class="s-title">Restore previous session</div>
-            <div class="s-desc">Reopen the tabs and workspace you had open when you last closed Govind.</div></div>
+            <div class="s-desc">Reopen the tabs and workspace you had open when you last closed Ritam.</div></div>
           <label class="switch"><input type="checkbox" id="setting-restore-session" ${s.restore_session === 'true' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
         </div>
         <div class="setting-row">
@@ -120,7 +150,7 @@ async function renderCategory(category) {
     host.innerHTML = `
       <section class="settings-card">
         <h4>Encrypted browser backup</h4>
-        <p class="s-desc">Export or merge bookmarks, workspaces, tabs, history, notes, download records, reading list, site permissions, and settings. Private tabs and downloaded files are never included. The archive is encrypted on this device with your passphrase; Govind cannot recover a forgotten passphrase.</p>
+        <p class="s-desc">Export or merge bookmarks, workspaces, tabs, history, notes, download records, reading list, site permissions, and settings. Private tabs and downloaded files are never included. The archive is encrypted on this device with your passphrase; Ritam cannot recover a forgotten passphrase.</p>
         <div class="setting-row">
           <div><div class="s-title">Export backup</div>
             <div class="s-desc">Keep the encrypted .gbak file somewhere safe to move it to another device.</div></div>
@@ -159,7 +189,7 @@ async function renderCategory(category) {
     host.innerHTML = `
       <section class="settings-card">
         <h4>Saved profiles</h4>
-        <p class="s-desc">Govind fills recognizable form fields (name, email, phone, address, card) from these profiles. Stored only in the local database — never synced anywhere.</p>
+        <p class="s-desc">Ritam fills recognizable form fields (name, email, phone, address, card) from these profiles. Stored only in the local database — never synced anywhere.</p>
         <div id="autofill-list"></div>
         <div id="autofill-form" class="hidden">
           <div class="setting-row"><div><div class="s-title">Label</div></div>
@@ -205,7 +235,7 @@ async function renderCategory(category) {
       <section class="settings-card">
         <div class="setting-row">
           <div><div class="s-title">Telemetry &amp; crash reporting</div>
-            <div class="s-desc">Disabled. Govind sends no analytics anywhere. There is nothing to turn on yet.</div></div>
+            <div class="s-desc">Disabled. Ritam sends no analytics anywhere. There is nothing to turn on yet.</div></div>
           <span class="chip selected" aria-disabled="true">Off, always</span>
         </div>
       </section>
@@ -217,12 +247,12 @@ async function renderCategory(category) {
         </div>
         <div class="setting-row">
           <div><div class="s-title">Do Not Track</div>
-            <div class="s-desc">Ask sites not to track you. Govind marks pages so scripts see the signal; note the engine cannot add the DNT HTTP header itself.</div></div>
+            <div class="s-desc">Ask sites not to track you. Ritam marks pages so scripts see the signal; note the engine cannot add the DNT HTTP header itself.</div></div>
           <label class="switch"><input type="checkbox" id="setting-do-not-track" ${s.do_not_track === 'true' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
         </div>
         <div class="setting-row">
           <div><div class="s-title">Safe browsing</div>
-            <div class="s-desc">Warn before opening sites on Govind's blocklist. The built-in list is minimal — add your own domains below (one per line).</div></div>
+            <div class="s-desc">Warn before opening sites on Ritam's blocklist. The built-in list is minimal — add your own domains below (one per line).</div></div>
           <label class="switch"><input type="checkbox" id="setting-safe-browsing" ${s.safe_browsing !== 'false' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
         </div>
         <div class="setting-row">
@@ -274,7 +304,7 @@ async function renderCategory(category) {
   host.innerHTML = `
     <section class="settings-card about-hero">
       <div class="about-logo">G</div>
-      <div class="about-name">Govind Browser</div>
+      <div class="about-name">Ritam Browser</div>
       <div class="about-ver">v${info?.version ?? '0.1.0'} · ${info?.milestone ?? 'Milestone 1 — Browser shell'}</div>
     </section>
     <section class="settings-card">
@@ -371,7 +401,7 @@ function wireSettingsPage(container) {
       } else {
         const link = document.createElement('a');
         link.href = URL.createObjectURL(new Blob([encrypted], { type: 'application/json' }));
-        link.download = 'govind-browser-backup.gbak';
+        link.download = 'ritam-browser-backup.gbak';
         link.click();
         setTimeout(() => URL.revokeObjectURL(link.href), 0);
       }
@@ -558,7 +588,7 @@ function wireSettingsPage(container) {
     toast(value ? 'Translation server saved.' : 'Translation server cleared.');
   });
 
-  // Category rail
+  // Category rail: jump within the single settings page.
   container.querySelectorAll('[data-settings-category]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-settings-category');
@@ -567,7 +597,7 @@ function wireSettingsPage(container) {
         return;
       }
       selectSettingsCategory(id);
-      renderSettingsPage(container);
+      scrollToSection(id);
     });
   });
 
@@ -602,16 +632,16 @@ function wireSettingsPage(container) {
 
   on('#permissions-clear-all', 'click', async () => {
     const n = await api.clearSitePermissions();
-    await renderCategory(settingsCategory());
+    await renderAllSections();
     toast(`Reset ${n} permission ${n === 1 ? 'entry' : 'entries'}.`);
   });
 
-  // Settings search filters the category rail
+  // Settings search filters the visible sections (the rail still jumps).
   on('#settings-search', 'input', (e) => {
     const query = e.target.value.trim().toLowerCase();
-    container.querySelectorAll('.internal-nav-item').forEach((item) => {
-      const label = item.textContent.trim().toLowerCase();
-      item.classList.toggle('hidden', !!query && !label.includes(query));
+    container.querySelectorAll('.settings-section').forEach((section) => {
+      const text = section.textContent.toLowerCase();
+      section.classList.toggle('hidden', !!query && !text.includes(query));
     });
   });
 }
