@@ -20,6 +20,7 @@ import { initPalette, openPalette, closePalette, isPaletteOpen } from './views/p
 import { reloadWebView, historyWebView } from './views/browser.js';
 import { initOmnibar } from './views/omnibar.js';
 import { initProfiles } from './views/profiles.js';
+import { openViewerPicker } from './views/viewer.js';
 import { initQuickPopovers, openQuick } from './views/quick-popovers.js';
 import { isNative } from './services/ipc.js';
 import { displayUrl, HOME_URL, schemeOf, hostOf } from './lib/url.js';
@@ -160,6 +161,10 @@ const actions = {
   'task-manager': async () => { await openInternal('task-manager'); },
   'media-controls': async () => { await openMediaControls(); },
   'reading-list': async () => { await openInternal('reading-list'); },
+  'file-viewer': async () => {
+    await openInternal('viewer');
+    await openViewerPicker();
+  },
   'save-for-later': async () => { await savePageForLater(); },
   'guest-mode': async () => {
     store.guestMode = !store.guestMode;
@@ -1144,6 +1149,7 @@ function buildPaletteCommands() {
     { title: 'Print / Save as PDF', hint: 'Ctrl P', keywords: ['print', 'pdf', 'paper'], run: run(actions.print) },
     { title: 'Save Page for Later', hint: 'Reading list', keywords: ['read later', 'offline', 'article'], run: run(actions['save-for-later']) },
     { title: 'Open Reading List', hint: 'govind://reading-list', keywords: ['read later', 'articles'], run: run(actions['reading-list']) },
+    { title: 'Open File Viewer', hint: 'govind://viewer', keywords: ['preview', 'image', 'video', 'pdf', 'docx', 'xlsx', 'csv', 'json', 'markdown'], run: run(actions['file-viewer']) },
     { title: 'Task Manager', hint: 'govind://task-manager', keywords: ['tabs', 'memory', 'audio'], run: run(actions['task-manager']) },
     { title: 'Toggle Guest Mode', hint: 'Private', keywords: ['guest', 'private', 'incognito'], run: run(actions['guest-mode']) },
     { title: 'Forget This Site…', hint: 'Cookies & storage', keywords: ['shred', 'forgetful browsing', 'cookies', 'storage', 'sign out'], run: run(actions['clear-site-data']) },

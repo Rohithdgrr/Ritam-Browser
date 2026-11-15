@@ -5,4 +5,5 @@ pub mod menu;
 pub mod profiles;
 pub mod settings;
 pub mod tabs;
+pub mod viewer;
 pub mod workspaces;

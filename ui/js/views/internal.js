@@ -15,6 +15,7 @@ import * as api from '../services/ipc.js';
 import { displayUrl, hostOf, monogram } from '../lib/url.js';
 import { store, refreshBookmarks, goHome, persistClosedTabs, clearClosedTabs } from '../state/store.js';
 import { renderSettingsPage } from './settings.js';
+import { renderViewerPage } from './viewer.js';
 
 const ICON = {
   history: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
@@ -39,6 +40,7 @@ const NAV_ITEMS = [
   { page: 'reading-list', label: 'Reading list', icon: ICON.reading },
   { page: 'task-manager', label: 'Task manager', icon: ICON.taskManager },
   { page: 'media-controls', label: 'Media controls', icon: ICON.media },
+  { page: 'viewer', label: 'File viewer', icon: ICON.file },
   { page: 'recently-closed', label: 'Recently closed', icon: ICON.recentlyClosed },
   { page: 'settings', label: 'Settings', icon: ICON.settings },
 ];
@@ -50,6 +52,7 @@ const PAGE_TITLES = {
   'reading-list': 'Reading list',
   'task-manager': 'Task manager',
   'media-controls': 'Media controls',
+  viewer: 'File viewer',
   'recently-closed': 'Recently closed tabs',
   unsafe: 'Safety check',
   settings: 'Settings',
@@ -76,6 +79,14 @@ export async function renderInternalPage() {
   const host = $('#view-internal');
   if (!host) return;
   const page = store.internalPage ?? 'history';
+
+  // The viewer keeps its DOM between shell renders; another page clears it.
+  if (page !== 'viewer') delete host.dataset.viewerMount;
+
+  if (page === 'viewer') {
+    renderViewerPage();
+    return;
+  }
 
   if (page === 'settings') {
     host.innerHTML = '<div class="internal-shell" id="internal-shell"></div>';

@@ -209,6 +209,27 @@ export async function openExternal(url) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+/**
+ * Native "open file" dialog for the viewer. Resolves to a path, or null when
+ * cancelled / running in the browser preview.
+ */
+export async function pickViewerFile(extensions) {
+  if (!isTauri()) return null;
+  return invoke('plugin:dialog|open', {
+    options: {
+      multiple: false,
+      directory: false,
+      filters: [{ name: 'Viewable files', extensions }],
+    },
+  });
+}
+
+/** Raw bytes of a user-selected file for `govind://viewer` (native only). */
+export async function readViewerBytes(path) {
+  if (!isTauri()) throw new Error('local file previews are available in the installed app');
+  return invoke('read_viewer_bytes', { path });
+}
+
 export async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);

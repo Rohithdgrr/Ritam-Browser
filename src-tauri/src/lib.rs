@@ -294,6 +294,8 @@ pub fn run() {
             commands::settings::set_site_permission,
             commands::settings::clear_site_permissions,
             commands::settings::get_app_info,
+            // Local file viewer (read-only previews)
+            commands::viewer::read_viewer_bytes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ritam Browser");

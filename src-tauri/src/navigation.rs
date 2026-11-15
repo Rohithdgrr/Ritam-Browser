@@ -18,6 +18,7 @@ pub const INTERNAL_ROUTES: &[&str] = &[
     "reading-list",
     "task-manager",
     "media-controls",
+    "viewer",
     "unsafe",
 ];
 
@@ -138,6 +139,7 @@ mod tests {
         assert_eq!(validate_navigation_url("govind://settings").unwrap(), "govind://settings");
         assert_eq!(validate_navigation_url("govind://bookmarks").unwrap(), "govind://bookmarks");
         assert_eq!(validate_navigation_url("govind://media-controls").unwrap(), "govind://media-controls");
+        assert_eq!(validate_navigation_url("govind://viewer").unwrap(), "govind://viewer");
         assert_eq!(validate_navigation_url("GOVIND://History/").unwrap(), "govind://history");
     }
 
