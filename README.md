@@ -30,20 +30,22 @@ translation server only when you explicitly translate a page.
 | Tab search / quick switcher (Ctrl+Shift+A) | ✅ Working |
 | New-tab shortcut tiles (bookmark favorites) and custom search URL template | ✅ Working |
 | Picture-in-Picture, per-tab audio mute + speaker indicators | ✅ Working |
+| In-app media controls across loaded tabs (top-level audio/video, including private tabs) | ✅ Working |
 | Forced dark mode for websites, built-in page translation | ✅ Working |
 | Read Aloud with current-word highlighting (Alt+Shift+R) | ✅ Working |
 | Spell check in web forms, print / save-as-PDF (Ctrl+P) | ✅ Working |
 | Form autofill profiles (names, addresses, cards — Settings → Autofill) | ✅ Working |
 | Secure password generation on focused password fields | ✅ Working |
 | Guest mode (all-new-tabs-private session), task manager page | ✅ Working |
-| Safe-browsing blocklist warnings, Do Not Track signal, cosmetic content filters | ✅ Working |
-| Clear cookies & site data per site | ✅ Working |
+| Safe-browsing blocklist warnings, Do Not Track, cosmetic filters, EasyList/EasyPrivacy/uBlock network and cosmetic blocking | ✅ Windows/WebView2 (each filter list refreshes on its upstream 12-hour to 7-day schedule) |
+| Forget site data: matching cookies (including HttpOnly), origin storage, IndexedDB, Cache Storage, service workers | ✅ Working (site must be open; reload after) |
 | Picture-in-Picture (video hover control / Alt+Shift+P) | ✅ Working |
 | Tab audio indicators and mute (Alt+Shift+M) | ✅ Working |
 | Forced dark websites (Alt+Shift+D) | ✅ Working |
 | Page translation through a configured LibreTranslate endpoint (Alt+Shift+T) | ✅ Working |
 | Real favicons from the page, tab context menu (duplicate, pin, mute, close others / right / except pinned) | ✅ Working |
 | Bookmarks import / export (Netscape HTML, works with Chrome/Firefox/Edge) | ✅ Working (native OS file dialog, Rust-side parsing) |
+| Encrypted browser-data backup / merge restore (`.gbak`) | ✅ Working (PBKDF2 + AES-256-GCM; manual transfer, not automatic sync) |
 | Page DevTools (Inspect page), auto-play blocking | ✅ Working |
 | PDF viewing | ✅ Handled natively by the system WebView |
 | Reader mode, persistent named/collapsible tab groups | ✅ Working |
@@ -76,8 +78,15 @@ Known limitations (each tracked in `docs/ENGINE_SPIKE.md`):
 5. Regular tabs share one WebView2 profile, so per-tab identity/cookie isolation
    is not available yet. Private tabs use WebView2 InPrivate storage and are
    excluded from session restore and the app's history/download records.
-6. No CDP access, request interception or response mocking — those need the
-   Chromium engine discussed in PRD §31.
+6. There is no CDP or general-purpose request mocking. Windows/WebView2 tabs
+   install a native request hook for EasyList/EasyPrivacy and uBlock Origin ad,
+   tracker, scriptlet and cosmetic filtering. Full list snapshots are shipped
+   in the app, so blocking works offline on first launch; the local cache is
+   refreshed from the list hosts on each list's declared schedule (uBlock
+   quick fixes every 12 hours, EasyList/EasyPrivacy every 4 days). `$removeparam`
+   tracking parameters are stripped from document and XHR requests. The hook is
+   not available on WebKitGTK or other platforms, does not rewrite response
+   bodies, and does not provide Chrome DevTools Protocol features.
 7. Reader mode extracts text from common article/main elements; it is a
    lightweight reader view, not a full readability parser. Recently closed
    entries are held in memory for the current app session only.
@@ -97,6 +106,47 @@ Known limitations (each tracked in `docs/ENGINE_SPIKE.md`):
     generator creates a 24-character password locally on explicit click and
     fills only the focused password field; Govind does not save generated
     passwords.
+12. Browser-data transfer is a manual encrypted file, not live cross-device
+    sync. It uses a passphrase you must retain; Govind cannot recover it.
+    Import merges records and keeps existing conflicting data. Private tabs and
+    downloaded file contents are never included.
+
+### Chrome parity boundaries
+
+The installed app uses the system WebView2 runtime, not a separately controlled
+Chromium build. Web APIs such as WebCodecs, text fragments, Credential Management, Payment
+Request, clipboard, file access, and hardware-device access are runtime-, OS-,
+origin-, and policy-dependent; Govind does not emulate Chrome or promise
+feature parity for them.
+Test those APIs against the supported WebView2 runtime instead of treating
+them as app-owned browser features.
+
+The current shell does not expose browser-engine controls for DoH, process/site
+isolation policy, bfcache, automatic tab freezing/discard, CDP network mocking,
+or extension side panels. The built-in network blocker is limited to Windows
+WebView2 and public EasyList/EasyPrivacy rules; it is not real-time cloud threat
+detection and cannot guarantee playback on anti-adblock sites.
+Cloud-backed threat intelligence,
+password-breach monitoring, AI/history services, Google Drive, and cloud speech
+voices also need provider integrations that Govind does not currently have.
+PDF annotation, full-resource offline archives, and live captions are separate
+product subsystems and remain unimplemented; Protocol Lab remains skipped per
+product decision.
+
+The blocker uses Brave's `adblock` Rust engine (MPL-2.0) with the public
+[EasyList](https://easylist.to/easylist/easylist.txt),
+[EasyPrivacy](https://easylist.to/easylist/easyprivacy.txt), and uBlock Origin
+filter/scriptlet lists (uBlock filters, quick fixes, unbreak, badware, privacy,
+resource abuse). Upstream list headers and attribution are retained in the local
+cache and in `src-tauri/filter-assets/manifest.json`.
+
+The custom CSS selector setting remains separate from the built-in network
+and cosmetic blocker, which is available only on Windows/WebView2.
+Fingerprint randomization and third-party-cookie blocking are not implemented.
+“Forget this site” deletes matching HTTP-only and script-visible cookies, then
+clears storage for the current origin; some storage deletion can be blocked by
+open pages, and the current tab must reload. It does not clear browsing history
+or guarantee removal of in-memory page state.
 
 `webview.rs` remains the single engine seam: everything else talks to typed
 IPC commands.
@@ -197,6 +247,9 @@ cargo check
   rejected.
 - No telemetry. History, notes, downloads and permissions live only in the local
   SQLite database (`%APPDATA%/com.govind.browser/govind.db` on Windows).
+- Browser-data backups are encrypted on-device before the save dialog receives
+  their contents. The archive is not uploaded; manually move it between
+  devices and keep its passphrase separate.
 
 ## Keyboard shortcuts
 

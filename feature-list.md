@@ -35,6 +35,8 @@ does not imply that every planned feature is available.
   per-domain zoom memory.
 - Form autofill profiles and on-demand local password generation.
 - Import/export bookmarks in Netscape HTML format.
+- Passphrase-encrypted browser-data backup and merge restore (`.gbak`) for
+  manual transfer between devices.
 - Task Manager page showing observable per-tab states.
 
 ### Privacy, safety, and settings
@@ -62,6 +64,8 @@ does not imply that every planned feature is available.
   only when translation is requested.
 - Reader mode is a lightweight extraction, not a complete readability engine.
 - Recently closed tabs and mute state do not persist across app restarts.
+- There is no automatic cloud/account sync. Encrypted archives must be moved
+  manually; losing the passphrase makes the archive unrecoverable.
 - Forced dark mode can render some sites incorrectly; site behavior can vary.
 - PDF support depends on the platform webview.
 

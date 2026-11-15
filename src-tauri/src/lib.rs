@@ -1,12 +1,16 @@
 mod commands;
+mod adblocker;
 mod db;
 mod error;
 mod models;
 mod navigation;
 mod webview;
+#[cfg(windows)]
+mod webview2_blocker;
 
 use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, GlobalShortcutExt, ShortcutState};
+use rusqlite::OptionalExtension;
 
 use webview::TabWebviewManager;
 
@@ -124,6 +128,41 @@ pub fn run() {
             let db = db::init(app.handle())?;
             app.manage(db);
 
+            let blocker = app.state::<TabWebviewManager>().network_blocker();
+            let network_blocking = app
+                .state::<db::DbState>()
+                .conn()
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'network_blocking'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .as_deref()
+                != Some("false");
+            blocker.set_enabled(network_blocking);
+            let blocker_allowlist = app
+                .state::<db::DbState>()
+                .conn()
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'adblock_allowlist'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .unwrap_or_default();
+            blocker.set_allowlist(&blocker_allowlist);
+            let filter_list_dir = app.path().app_data_dir()?.join("filter-lists");
+            if let Err(error) = blocker.load_cache(&filter_list_dir) {
+                log::warn!("could not load cached network filter lists: {error}");
+            }
+            let app_handle = app.handle().clone();
+            adblocker::start_updater(blocker, filter_list_dir, move || {
+                app_handle
+                    .state::<TabWebviewManager>()
+                    .refresh_network_cosmetics();
+            });
+
             let app_handle = app.handle().clone();
             if let Some(main) = app.get_window("main") {
                 main.on_window_event(move |event| match event {
@@ -148,6 +187,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::menu::show_more_menu,
+            commands::backup::export_browser_backup_snapshot,
+            commands::backup::import_browser_backup_snapshot,
+            commands::backup::save_encrypted_browser_backup,
+            commands::backup::open_encrypted_browser_backup,
             // Tabs & navigation
             commands::tabs::create_tab,
             commands::tabs::list_tabs,
@@ -169,6 +212,7 @@ pub fn run() {
             commands::tabs::reader_mode_tab,
             commands::tabs::read_aloud_tab,
             commands::tabs::set_tab_muted,
+            commands::tabs::control_tab_media,
             commands::tabs::set_force_dark_websites,
             commands::tabs::request_page_translation,
             commands::tabs::show_translated_page,
@@ -176,6 +220,9 @@ pub fn run() {
             commands::tabs::set_spellcheck,
             commands::tabs::set_do_not_track,
             commands::tabs::set_content_blocking,
+            commands::tabs::set_network_blocking,
+            commands::tabs::set_network_blocking_allowlist,
+            commands::tabs::get_network_blocker_status,
             commands::tabs::set_autofill_profiles,
             commands::tabs::request_page_snapshot,
             commands::tabs::clear_site_data,

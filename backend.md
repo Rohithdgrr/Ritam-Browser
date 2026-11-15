@@ -26,7 +26,8 @@ SQLite (db.rs, migrations/)   TabWebviewManager (webview.rs)
 - `src-tauri/src/lib.rs`: application setup, managed state, event wiring, IPC
   command registration, and global shortcuts.
 - `src-tauri/src/commands/`: typed command handlers grouped by responsibility:
-  tabs, workspaces, data, settings, bookmarks import/export, and native menus.
+  tabs, workspaces, data, settings, backups, bookmarks import/export, and
+  native menus.
 - `src-tauri/src/webview.rs`: creates, positions, shows, hides, navigates, and
   closes native child webviews; handles page events and browser integrations.
 - `src-tauri/src/db.rs`: resolves the application data directory, opens SQLite,
@@ -49,6 +50,15 @@ Private tabs use the WebView2 InPrivate profile and are not written to the
 application's tab, history, or download records. This does not make a private
 session invisible to websites, network providers, or operating-system
 monitoring. Regular tabs share the default webview profile.
+
+Browser-data portability is manual, not cloud sync. The trusted shell encrypts
+the database snapshot with PBKDF2-HMAC-SHA-256 (600,000 iterations) and
+AES-256-GCM using a random salt and IV before passing the archive to native
+file I/O. Import decrypts locally, validates the versioned payload in Rust,
+then merges it in one SQLite transaction. Existing records win ID/URL
+conflicts; history uses the newest visit time and larger visit count. Private
+tabs and downloaded file contents are excluded. The passphrase is never saved
+or recoverable.
 
 ## Trust boundaries
 

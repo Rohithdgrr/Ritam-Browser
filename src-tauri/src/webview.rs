@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
+use crate::adblocker::NetworkBlocker;
 use serde_json::json;
 use tauri::{
   AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl,
@@ -117,15 +118,38 @@ const PAGE_FEATURES_JS: &str = r#"
     setTimeout(function () { if (d.title === value) d.title = previous; }, 40);
   }
   function audioState() {
-    var playing = Array.from(d.querySelectorAll('audio,video')).some(function (m) {
+    var mediaPlaying = Array.from(d.querySelectorAll('audio,video')).some(function (m) {
       return !m.paused && !m.ended;
-    }) || Array.from(contexts).some(function (context) { return context.state === 'running'; })
+    });
+    var playing = mediaPlaying || Array.from(contexts).some(function (context) { return context.state === 'running'; })
       || !!(window.speechSynthesis && window.speechSynthesis.speaking);
-    var state = (playing ? '1' : '0') + ':' + (muted ? '1' : '0');
+    var hasMedia = d.querySelector('audio,video') !== null;
+    var state = (playing ? '1' : '0') + ':' + (muted ? '1' : '0') + ':' +
+      (hasMedia ? '1' : '0') + ':' + (mediaPlaying ? '1' : '0');
     if (state === lastAudioState) return;
     lastAudioState = state;
     titleSignal('__GOVIND_AUDIO__:' + state);
   }
+  window.__govindControlMedia = function (action) {
+    if (action !== 'toggle') return false;
+    var media = Array.from(d.querySelectorAll('audio,video'));
+    if (!media.length) return false;
+    var shouldPause = media.some(function (item) { return !item.paused && !item.ended; });
+    media.forEach(function (item) {
+      if (shouldPause) {
+        item.pause();
+      } else {
+        var result = item.play();
+        if (result && typeof result.catch === 'function') {
+          result.catch(function () {
+            titleSignal('__GOVIND_NOTICE__:This site blocked playback. Use its play button to start media.');
+          });
+        }
+      }
+    });
+    audioState();
+    return true;
+  };
   function setMediaMuted(media) {
     if (muted) {
       if (!Object.prototype.hasOwnProperty.call(media, '__govindWasMuted')) {
@@ -167,13 +191,20 @@ const PAGE_FEATURES_JS: &str = r#"
   d.addEventListener('pause', audioState, true);
   d.addEventListener('ended', audioState, true);
   d.addEventListener('volumechange', audioState, true);
+  d.addEventListener('loadedmetadata', audioState, true);
+  d.addEventListener('emptied', audioState, true);
   function setupDocument() {
     if (!d.documentElement) {
       d.addEventListener('DOMContentLoaded', setupDocument, { once: true });
       return;
     }
     new MutationObserver(function (records) {
+      var mediaChanged = false;
       records.forEach(function (record) {
+        if ([].slice.call(record.addedNodes).concat([].slice.call(record.removedNodes)).some(function (node) {
+          return node.nodeType === 1 && ((node.matches && node.matches('audio,video')) ||
+            (node.querySelector && node.querySelector('audio,video')));
+        })) mediaChanged = true;
         record.addedNodes.forEach(function (node) {
           if (node.nodeType !== 1) return;
           if (muted) {
@@ -187,6 +218,7 @@ const PAGE_FEATURES_JS: &str = r#"
           }
         });
       });
+      if (mediaChanged) audioState();
     }).observe(d.documentElement, { childList: true, subtree: true });
     applySpellcheck();
 
@@ -613,32 +645,73 @@ const SNAPSHOT_JS: &str = r#"
 })
 "#;
 
-/// "Clear site data" for the current page's origin: expires every cookie the
-/// page can see and wipes origin storage. Best-effort — cookies set on parent
-/// domains or httpOnly flags limit what page script can reach.
+/// Clear accessible site storage for the current page's origin. Cookies are
+/// removed through the WebView cookie manager so HttpOnly cookies are included.
 const CLEAR_SITE_DATA_JS: &str = r#"
 (function () {
-  var host = location.hostname;
-  var bare = host.replace(/^www\./, '');
-  var domains = [host, '.' + host, '.' + bare];
-  document.cookie.split(';').forEach(function (c) {
-    var name = c.split('=')[0].trim();
-    if (!name) return;
-    domains.forEach(function (d) {
-      document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=' + d;
-    });
-    document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
-  });
-  try { localStorage.clear(); } catch (_) {}
-  try { sessionStorage.clear(); } catch (_) {}
+  var originalTitle = document.title;
+  var failures = [];
+  var tasks = [];
+  function signal(message) {
+    var marker = '__GOVIND_NOTICE__:' + message;
+    document.title = marker;
+    setTimeout(function () {
+      if (document.title === marker) document.title = originalTitle;
+    }, 250);
+  }
+  try { localStorage.clear(); } catch (_) { failures.push('local storage'); }
+  try { sessionStorage.clear(); } catch (_) { failures.push('session storage'); }
+
   try {
-    if (indexedDB && indexedDB.databases) {
-      indexedDB.databases().then(function (dbs) {
-        dbs.forEach(function (d) { if (d.name) indexedDB.deleteDatabase(d.name); });
-      });
+    if (indexedDB && typeof indexedDB.databases === 'function') {
+      tasks.push(indexedDB.databases().then(function (databases) {
+        return Promise.all(databases.map(function (database) {
+          if (!database.name) return Promise.resolve();
+          return new Promise(function (resolve, reject) {
+            var request = indexedDB.deleteDatabase(database.name);
+            request.onsuccess = resolve;
+            request.onerror = reject;
+            request.onblocked = reject;
+          });
+        }));
+      }));
+    } else {
+      failures.push('IndexedDB');
     }
-  } catch (_) {}
-  return true;
+  } catch (_) {
+    failures.push('IndexedDB');
+  }
+
+  try {
+    if (window.caches && typeof caches.keys === 'function') {
+      tasks.push(caches.keys().then(function (names) {
+        return Promise.all(names.map(function (name) { return caches.delete(name); }));
+      }));
+    } else {
+      failures.push('Cache Storage');
+    }
+  } catch (_) {
+    failures.push('Cache Storage');
+  }
+
+  try {
+    if (navigator.serviceWorker && typeof navigator.serviceWorker.getRegistrations === 'function') {
+      tasks.push(navigator.serviceWorker.getRegistrations().then(function (registrations) {
+        return Promise.all(registrations.map(function (registration) { return registration.unregister(); }));
+      }));
+    }
+  } catch (_) {
+    failures.push('service workers');
+  }
+
+  Promise.allSettled(tasks).then(function (results) {
+    if (results.some(function (result) { return result.status === 'rejected'; })) {
+      failures.push('site storage');
+    }
+    signal(failures.length
+      ? 'Some site data could not be cleared (' + failures.join(', ') + '). Close this site’s tabs and retry.'
+      : 'Site data cleared. Reload the page to finish.');
+  });
 })();
 "#;
 
@@ -689,6 +762,7 @@ const BUILTIN_BLOCKLIST: &[&str] = &["testsafebrowsing.appspot.com"];
 
 pub struct TabWebviewManager {
   webviews: Mutex<HashMap<String, Webview>>,
+  network_blocker: NetworkBlocker,
   private_tabs: Mutex<HashSet<String>>,
   muted_tabs: Mutex<HashSet<String>>,
   force_dark_websites: Mutex<bool>,
@@ -706,6 +780,7 @@ impl TabWebviewManager {
   pub fn new() -> Self {
     Self {
       webviews: Mutex::new(HashMap::new()),
+      network_blocker: NetworkBlocker::new(),
       private_tabs: Mutex::new(HashSet::new()),
       muted_tabs: Mutex::new(HashSet::new()),
       force_dark_websites: Mutex::new(false),
@@ -755,6 +830,46 @@ impl TabWebviewManager {
     self.autofill_profiles.lock().unwrap_or_else(|e| e.into_inner()).clone()
   }
 
+  pub fn has_view(&self, tab_id: &str) -> bool {
+    self.webviews().contains_key(tab_id)
+  }
+
+  pub fn network_blocker(&self) -> NetworkBlocker {
+    self.network_blocker.clone()
+  }
+
+  pub fn set_network_blocking(&self, enabled: bool) {
+    self.network_blocker.set_enabled(enabled);
+    self.refresh_network_cosmetics();
+  }
+
+  /// Replace the per-site ad-blocking allowlist. Network blocking applies to
+  /// the next request immediately; already-hidden ad elements are un-hidden on
+  /// open pages where blocking is now off (re-enabling still needs a reload).
+  pub fn set_network_blocking_allowlist(&self, value: &str) {
+    self.network_blocker.set_allowlist(value);
+    self.refresh_network_cosmetics();
+  }
+
+  /// Re-resolve the built-in cosmetic rules for every open page. Called after
+  /// a filter-list update and after the blocker is paused or allowlisted.
+  pub fn refresh_network_cosmetics(&self) {
+    let views: Vec<Webview> = self.webviews().values().cloned().collect();
+    for webview in views {
+      let Ok(url) = webview.url() else { continue };
+      let selectors = self
+        .network_blocker
+        .page_resources(url.as_str())
+        .map(|resources| resources.hide_selectors)
+        .unwrap_or_default();
+      let selectors_json = serde_json::to_string(&selectors).unwrap_or_else(|_| "[]".into());
+      let _ = webview.eval(format!(
+        "window.__govindAdblockRefresh && window.__govindAdblockRefresh({selectors_json});"
+      ));
+    }
+    self.push_page_features();
+  }
+
   /// Push the current page-feature state into every live webview. Called
   /// after a setting changes; new pages get the same values on load finish.
   fn push_page_features(&self) {
@@ -762,10 +877,10 @@ impl TabWebviewManager {
     let dnt = self.dnt_enabled();
     let css = self.cosmetic_css();
     let profiles = self.autofill_profiles();
-    let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
     let profiles_json = serde_json::to_string(&profiles).unwrap_or_else(|_| "\"[]\"".into());
     let views: Vec<Webview> = self.webviews().values().cloned().collect();
     for webview in views {
+      let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
       let _ = webview.eval(&format!("window.__govindSetSpellcheck && window.__govindSetSpellcheck({spell});"));
       let _ = webview.eval(&format!("window.__govindSetDnt && window.__govindSetDnt({dnt});"));
       let _ = webview.eval(&format!("window.__govindSetCosmetic && window.__govindSetCosmetic({css_json});"));
@@ -875,7 +990,12 @@ impl TabWebviewManager {
       )
       .replace("__PASSWORD_GENERATOR__", PASSWORD_GENERATOR_JS);
 
-    let builder = tauri::webview::WebviewBuilder::new(format!("tab-{tab_id}"), WebviewUrl::External(url))
+    #[cfg(windows)]
+    let initial_url = Url::parse("about:blank").expect("valid blank page URL");
+    #[cfg(not(windows))]
+    let initial_url = url.clone();
+
+    let builder = tauri::webview::WebviewBuilder::new(format!("tab-{tab_id}"), WebviewUrl::External(initial_url))
       .incognito(self.is_private(tab_id))
       .initialization_script(initial_script)
       .on_navigation(move |url| {
@@ -907,6 +1027,8 @@ impl TabWebviewManager {
               "tabId": title_id,
               "playing": parts.next() == Some("1"),
               "muted": parts.next() == Some("1"),
+              "hasMedia": parts.next() == Some("1"),
+              "mediaPlaying": parts.next() == Some("1"),
             }),
           );
           return;
@@ -972,15 +1094,15 @@ impl TabWebviewManager {
           let profiles = mgr.autofill_profiles();
           let probe = webview.clone();
           std::thread::spawn(move || {
+            let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
+            let _ = probe.eval(&format!("window.__govindSetCosmetic && window.__govindSetCosmetic({css_json});"));
             std::thread::sleep(Duration::from_millis(400));
             let _ = probe.eval(FAVICON_PROBE_JS);
             let _ = probe.eval(&format!("window.__govindSetMuted && window.__govindSetMuted({muted});"));
             let _ = probe.eval(&format!("window.__govindForceDark && window.__govindForceDark({force_dark});"));
             let _ = probe.eval(&format!("window.__govindSetSpellcheck && window.__govindSetSpellcheck({spell});"));
             let _ = probe.eval(&format!("window.__govindSetDnt && window.__govindSetDnt({dnt});"));
-            let css_json = serde_json::to_string(&css).unwrap_or_else(|_| "\"\"".into());
             let profiles_json = serde_json::to_string(&profiles).unwrap_or_else(|_| "\"[]\"".into());
-            let _ = probe.eval(&format!("window.__govindSetCosmetic && window.__govindSetCosmetic({css_json});"));
             let _ = probe.eval(&format!("window.__govindSetAutofill && window.__govindSetAutofill({profiles_json});"));
           });
         }
@@ -1028,11 +1150,42 @@ impl TabWebviewManager {
       .add_child(builder, position, size)
       .map_err(|e| AppError::Window(e.to_string()))?;
 
+    #[cfg(windows)]
+    {
+      if let Err(error) = Self::install_network_blocker(&webview, self.network_blocker.clone()) {
+        let _ = webview.close();
+        return Err(error);
+      }
+      webview.navigate(url).map_err(|error| {
+        let _ = webview.close();
+        AppError::Window(format!("start tab navigation: {error}"))
+      })?;
+    }
+
     // Start hidden: the tab becomes visible when it is activated.
     let _ = webview.hide();
     self.webviews().insert(tab_id.to_string(), webview);
     self.apply();
     Ok(())
+  }
+
+  #[cfg(windows)]
+  fn install_network_blocker(webview: &Webview, blocker: NetworkBlocker) -> Result<(), AppError> {
+    use std::sync::mpsc;
+
+    let (sender, receiver) = mpsc::channel();
+    webview
+      .with_webview(move |platform| {
+        let result = unsafe { crate::webview2_blocker::register(platform, blocker) }
+          .map_err(|error| error.to_string());
+        let _ = sender.send(result);
+      })
+      .map_err(|error| AppError::Window(format!("install network blocker: {error}")))?;
+
+    receiver
+      .recv_timeout(Duration::from_secs(10))
+      .map_err(|error| AppError::Window(format!("install network blocker: {error}")))?
+      .map_err(|error| AppError::Window(format!("install network blocker: {error}")))
   }
 
   /// Destroy a tab's webview (tab closed, or the tab returned to the home page).
@@ -1113,6 +1266,14 @@ impl TabWebviewManager {
     true
   }
 
+  pub fn control_tab_media(&self, tab_id: &str) -> bool {
+    let Some(webview) = self.webviews().get(tab_id).cloned() else {
+      return false;
+    };
+    let _ = webview.eval("window.__govindControlMedia && window.__govindControlMedia('toggle');");
+    true
+  }
+
   pub fn set_force_dark_websites(&self, enabled: bool) {
     *self.force_dark_websites.lock().unwrap_or_else(|e| e.into_inner()) = enabled;
     let views: Vec<Webview> = self.webviews().values().cloned().collect();
@@ -1156,12 +1317,36 @@ impl TabWebviewManager {
   }
 
   /// Expire cookies and clear origin storage for the page's site.
-  pub fn clear_site_data(&self, tab_id: &str) -> bool {
+  pub async fn clear_site_data(&self, tab_id: &str) -> Result<bool, AppError> {
     let Some(webview) = self.webviews().get(tab_id).cloned() else {
-      return false;
+      return Ok(false);
     };
-    let _ = webview.eval(CLEAR_SITE_DATA_JS);
-    true
+    let url = webview.url().map_err(|e| AppError::Window(e.to_string()))?;
+    let origin = url.origin();
+    let cookies = webview
+      .cookies_for_url(url)
+      .map_err(|e| AppError::Window(e.to_string()))?;
+    for cookie in cookies {
+      webview
+        .delete_cookie(cookie)
+        .map_err(|e| AppError::Window(e.to_string()))?;
+    }
+    let private = self.is_private(tab_id);
+    let views: Vec<(String, Webview)> = self
+      .webviews()
+      .iter()
+      .map(|(id, view)| (id.clone(), view.clone()))
+      .collect();
+    for (id, view) in views {
+      if self.is_private(&id) != private {
+        continue;
+      }
+      let view_url = view.url().map_err(|e| AppError::Window(e.to_string()))?;
+      if view_url.origin() == origin {
+        view.eval(CLEAR_SITE_DATA_JS).map_err(|e| AppError::Window(e.to_string()))?;
+      }
+    }
+    Ok(true)
   }
 
   /// Record that the user chose to visit a blocklisted URL anyway.

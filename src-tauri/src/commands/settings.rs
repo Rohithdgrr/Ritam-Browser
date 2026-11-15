@@ -19,6 +19,8 @@ const KNOWN_KEYS: &[&str] = &[
     "spellcheck",
     "do_not_track",
     "safe_browsing",
+    "network_blocking",
+    "adblock_allowlist",
     "safebrowsing_blocklist",
     "content_blocking",
     "cosmetic_filters",
@@ -38,6 +40,8 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("spellcheck", "true"),
     ("do_not_track", "false"),
     ("safe_browsing", "true"),
+    ("network_blocking", "true"),
+    ("adblock_allowlist", ""),
     ("safebrowsing_blocklist", ""),
     ("content_blocking", "false"),
     ("cosmetic_filters", ""),
@@ -95,6 +99,32 @@ fn valid_autofill_profiles(value: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn valid_setting_value(key: &str, value: &str) -> bool {
+    match key {
+        "search_engine" => SEARCH_ENGINES.contains(&value),
+        "theme" => THEMES.contains(&value),
+        "restore_session" | "https_first" | "force_dark_websites" | "spellcheck"
+        | "do_not_track" | "safe_browsing" | "network_blocking" | "content_blocking" => {
+            value == "true" || value == "false"
+        }
+        "active_workspace_id" => value.len() <= 128 && !value.contains(char::is_whitespace),
+        "custom_search_url" => {
+            let lower = value.to_ascii_lowercase();
+            (lower.starts_with("https://") || lower.starts_with("http://")) && value.len() <= 500
+        }
+        "translation_endpoint" => value.len() <= 2048 && valid_translation_endpoint(value),
+        "safebrowsing_blocklist" => value.len() <= 20_000 && valid_blocklist(value),
+        "adblock_allowlist" => value.len() <= 20_000 && valid_blocklist(value),
+        "cosmetic_filters" => value.len() <= 50_000 && valid_cosmetic_filters(value),
+        "autofill_profiles" => value.len() <= 100_000 && valid_autofill_profiles(value),
+        _ if key.starts_with("zoom:") => value
+            .parse::<f64>()
+            .map(|f| (0.25..=3.0).contains(&f))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
 #[tauri::command]
 pub fn get_settings(db: State<'_, DbState>) -> Result<HashMap<String, String>, AppError> {
     let conn = db.conn();
@@ -115,34 +145,7 @@ pub fn set_setting(db: State<'_, DbState>, key: String, value: String) -> Result
     if !known {
         return Err(AppError::InvalidInput(format!("unknown setting key: {key}")));
     }
-    let valid = match key.as_str() {
-        "search_engine" => SEARCH_ENGINES.contains(&value.as_str()),
-        "theme" => THEMES.contains(&value.as_str()),
-        "restore_session" | "https_first" | "force_dark_websites" | "spellcheck"
-        | "do_not_track" | "safe_browsing" | "content_blocking" => {
-            value == "true" || value == "false"
-        }
-        "active_workspace_id" => value.len() <= 128 && !value.contains(char::is_whitespace),
-        // A custom search URL template: http(s) only, optional "{query}" placeholder.
-        "custom_search_url" => {
-            let lower = value.to_ascii_lowercase();
-            (lower.starts_with("https://") || lower.starts_with("http://")) && value.len() <= 500
-        }
-        "translation_endpoint" => value.len() <= 2048 && valid_translation_endpoint(&value),
-        // Newline-separated host suffixes the safe-browsing check warns about.
-        "safebrowsing_blocklist" => value.len() <= 20_000 && valid_blocklist(&value),
-        // User cosmetic-filter CSS selectors, one per line (ad/tracker hiding).
-        "cosmetic_filters" => value.len() <= 50_000 && valid_cosmetic_filters(&value),
-        // JSON array of autofill profiles; shape is validated loosely here and
-        // strictly by the UI before saving.
-        "autofill_profiles" => value.len() <= 100_000 && valid_autofill_profiles(&value),
-        _ if key.starts_with("zoom:") => value
-            .parse::<f64>()
-            .map(|f| (0.25..=3.0).contains(&f))
-            .unwrap_or(false),
-        _ => false,
-    };
-    if !valid {
+    if !valid_setting_value(&key, &value) {
         return Err(AppError::InvalidInput(format!("invalid value for setting: {key}")));
     }
     let conn = db.conn();

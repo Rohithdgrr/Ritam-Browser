@@ -52,6 +52,7 @@ export async function isFullscreen() {
   return w ? await w.isFullscreen() : false;
 }
 export const setTabMuted = (tabId, muted) => invoke('set_tab_muted', { tabId, muted });
+export const controlTabMedia = (tabId) => invoke('control_tab_media', { tabId });
 export const setForceDarkWebsites = (enabled) => invoke('set_force_dark_websites', { enabled });
 export const requestPageTranslation = (tabId, requestId) =>
   invoke('request_page_translation', { tabId, requestId });
@@ -61,6 +62,10 @@ export const restoreTranslatedPage = (tabId) => invoke('restore_translated_page'
 export const setSpellcheck = (enabled) => invoke('set_spellcheck', { enabled });
 export const setDoNotTrack = (enabled) => invoke('set_do_not_track', { enabled });
 export const setContentBlocking = (css) => invoke('set_content_blocking', { css });
+export const setNetworkBlocking = (enabled) => invoke('set_network_blocking', { enabled });
+export const setNetworkBlockingAllowlist = (allowlist) =>
+  invoke('set_network_blocking_allowlist', { allowlist });
+export const getNetworkBlockerStatus = () => invoke('get_network_blocker_status');
 export const setAutofillProfiles = (profilesJson) => invoke('set_autofill_profiles', { profilesJson });
 export const requestPageSnapshot = (tabId, requestId) =>
   invoke('request_page_snapshot', { tabId, requestId });
@@ -115,6 +120,14 @@ export const importBookmarksFile = () => invoke('import_bookmarks_file');
 export const exportBookmarksFile = () => invoke('export_bookmarks_file');
 export const importBookmarksHtml = (html) => invoke('import_bookmarks_html', { html });
 export const exportBookmarksHtml = () => invoke('export_bookmarks_html');
+
+// Password-encrypted browser-data archive; only the ciphertext reaches native file I/O.
+export const exportBrowserBackupSnapshot = () => invoke('export_browser_backup_snapshot');
+export const importBrowserBackupSnapshot = (snapshotJson) =>
+  invoke('import_browser_backup_snapshot', { snapshotJson });
+export const saveEncryptedBrowserBackup = (encryptedFile) =>
+  invoke('save_encrypted_browser_backup', { encryptedFile });
+export const openEncryptedBrowserBackup = () => invoke('open_encrypted_browser_backup');
 
 // ── History ───────────────────────────────────────────────────────────
 export const searchHistory = (query = '', limit = 100) => invoke('search_history', { query, limit });

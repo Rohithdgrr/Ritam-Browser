@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod bookmarks_io;
 pub mod data;
 pub mod menu;

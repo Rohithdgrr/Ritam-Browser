@@ -1,0 +1,92 @@
+{
+  "generatedAt": "2026-11-15T05:54:11.706Z",
+  "engine": "adblock-rust 0.13.5 (MPL-2.0)",
+  "lists": [
+    {
+      "file": "easylist.txt",
+      "title": "EasyList",
+      "url": "https://easylist.to/easylist/easylist.txt",
+      "license": "CC BY-SA 3.0 / GPLv3",
+      "trusted": false,
+      "rules": 78248,
+      "modified": "15 Nov 2026 05:48 UTC",
+      "sha256": "08daa5126dfe180a383ef0285d3166fe4b21356ffc6c7052dd3d050b7c36d1ae"
+    },
+    {
+      "file": "easyprivacy.txt",
+      "title": "EasyPrivacy",
+      "url": "https://easylist.to/easylist/easyprivacy.txt",
+      "license": "CC BY-SA 3.0 / GPLv3",
+      "trusted": false,
+      "rules": 56656,
+      "modified": "15 Nov 2026 05:34 UTC",
+      "sha256": "859a6cad0e9c58968a5684595a5f2a5e92b64a7700f98a4f0f8e3c20d5a39175"
+    },
+    {
+      "file": "ublock-filters.txt",
+      "title": "uBlock filters – Ads",
+      "url": "https://ublockorigin.github.io/uAssetsCDN/filters/filters.min.txt",
+      "license": "GPLv3",
+      "trusted": true,
+      "rules": 24171,
+      "modified": "Sat, 14 Nov 2026 18:16:00 +0000",
+      "sha256": "0b0ca543841eb1f5d495add9ab955203c67ea8ace258b6e54324b8d7de689dfc"
+    },
+    {
+      "file": "ublock-quick-fixes.txt",
+      "title": "uBlock filters – Quick fixes",
+      "url": "https://ublockorigin.github.io/uAssetsCDN/filters/quick-fixes.min.txt",
+      "license": "GPLv3",
+      "trusted": true,
+      "rules": 452,
+      "modified": "Sat, 14 Nov 2026 16:03:52 +0000",
+      "sha256": "213e18f1e3e66bca43ec189f8c970e32bbe8f839317fe97a6f81cbf370389d5c"
+    },
+    {
+      "file": "ublock-unbreak.txt",
+      "title": "uBlock filters – Unbreak",
+      "url": "https://ublockorigin.github.io/uAssetsCDN/filters/unbreak.min.txt",
+      "license": "GPLv3",
+      "trusted": true,
+      "rules": 2578,
+      "modified": "Sat, 14 Nov 2026 04:57:45 +0000",
+      "sha256": "8cb79b590dd9ce83bce39342544c04573edcc926a7ff6d5256797771d5eac9fd"
+    },
+    {
+      "file": "ublock-badware.txt",
+      "title": "uBlock filters – Badware risks",
+      "url": "https://ublockorigin.github.io/uAssetsCDN/filters/badware.min.txt",
+      "license": "GPLv3",
+      "trusted": true,
+      "rules": 4894,
+      "modified": "Sat, 14 Nov 2026 14:53:53 +0000",
+      "sha256": "79e2f04ee399492dc7a654eef72b069c74519c0ee23393599838511dccb66f46"
+    },
+    {
+      "file": "ublock-privacy.txt",
+      "title": "uBlock filters – Privacy",
+      "url": "https://ublockorigin.github.io/uAssetsCDN/filters/privacy.min.txt",
+      "license": "GPLv3",
+      "trusted": true,
+      "rules": 1881,
+      "modified": "Fri, 13 Nov 2026 10:20:28 +0000",
+      "sha256": "b9d910eebf822e0085dc28ab5c0317a007a286ae637006ab6567b986803b4a80"
+    },
+    {
+      "file": "ublock-resource-abuse.txt",
+      "title": "uBlock filters – Resource abuse",
+      "url": "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/resource-abuse.txt",
+      "license": "GPLv3",
+      "trusted": true,
+      "rules": 79,
+      "modified": "%timestamp%",
+      "sha256": "aaf7c0fdfbcc05aad0d53905d2a73dd8a36f71f05c9285e133c4e76ac61761d8"
+    }
+  ],
+  "resources": {
+    "url": "https://github.com/gorhill/uBlock/commit/e8efba123b7e4719613360e301a85b464927b953",
+    "license": "GPLv3",
+    "count": 200,
+    "sha256": "3d76a82aaf3d764138a1212daa94c13b11c7b93c8700bfcd2836cc6d6aa904e8"
+  }
+}

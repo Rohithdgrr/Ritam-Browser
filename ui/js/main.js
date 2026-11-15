@@ -43,6 +43,16 @@ async function openInternal(page) {
   if (result) await renderAll();
 }
 
+async function openMediaControls() {
+  const existing = store.tabs.find((tab) => tab.url === 'govind://media-controls');
+  if (existing) {
+    await activateTab(existing.id);
+  } else {
+    await createTab('govind://media-controls');
+  }
+  await renderAll();
+}
+
 const openPanelWithNav = (name) =>
   openPanel(name, { onNavigate: (url) => doNavigate(url) });
 
@@ -145,6 +155,7 @@ const actions = {
   },
   'tab-search': async () => { await openPalette({ tabsOnly: true }); },
   'task-manager': async () => { await openInternal('task-manager'); },
+  'media-controls': async () => { await openMediaControls(); },
   'reading-list': async () => { await openInternal('reading-list'); },
   'save-for-later': async () => { await savePageForLater(); },
   'guest-mode': async () => {
@@ -157,9 +168,13 @@ const actions = {
   'clear-site-data': async () => {
     const tab = store.activeTab();
     if (!tab || store.isInternalTab(tab)) { toast('Open a website first.'); return; }
-    if (!window.confirm(`Clear cookies and site data for ${hostOf(tab.url) ?? 'this site'}? You will be signed out.`)) return;
-    await api.clearSiteData(tab.id).catch((err) => toast(`Could not clear site data: ${err?.message ?? err}`));
-    toast('Site data cleared for this page. Reload to apply.');
+    if (!window.confirm(`Forget cookies and site data for ${hostOf(tab.url) ?? 'this site'}? You will be signed out on this site.`)) return;
+    try {
+      await api.clearSiteData(tab.id);
+      toast('Clearing site data…');
+    } catch (err) {
+      toast(`Could not forget site data: ${err?.message ?? err}`);
+    }
   },
   'toggle-sidebar': async () => {
     toggleSidebar();
@@ -434,6 +449,16 @@ function wireTabContextMenu() {
           : await api.duplicateTab(ctxTabId);
         await activateTab(dup.id);
         await renderAll();
+      } else if (action === 'open-private') {
+        if (!isNative()) {
+          toast('Private tabs are available in the installed app, where browsing data can be isolated.');
+          return;
+        }
+        const privateTab = await createPrivateTab(tab?.url ?? HOME_URL);
+        if (privateTab) {
+          await activateTab(privateTab.id);
+          await renderAll();
+        }
       } else if (action === 'pin') {
         await togglePinTab(ctxTabId);
         await renderAll();
@@ -581,6 +606,7 @@ function wireToolbar() {
   $('#btn-home')?.addEventListener('click', () => actions.home());
   $('#btn-reader-mode')?.addEventListener('click', () => actions['reader-mode']());
   $('#btn-read-aloud')?.addEventListener('click', () => actions['read-aloud']());
+  $('#btn-media-controls')?.addEventListener('click', () => actions['media-controls']());
 
   initOmnibar({ onNavigate: doNavigate });
 
@@ -690,6 +716,7 @@ function wireSidebar() {
     await syncNativeViews();
   });
   $('#btn-new-tab')?.addEventListener('click', () => actions['new-tab']());
+  $('#btn-new-private-tab')?.addEventListener('click', () => actions['new-private-tab']());
   $('#btn-palette')?.addEventListener('click', () => actions.palette());
 
   // Footer buttons open the internal pages
@@ -789,6 +816,33 @@ function wireGlobalEvents() {
     await openInternal(String(e.detail ?? ''));
   });
   document.addEventListener('govind:bookmarks-changed', async () => { await renderAll(); });
+  document.addEventListener('govind:browser-data-restored', async () => {
+    store.workspaces = await api.listWorkspaces();
+    store.settings = await api.getSettings();
+    if (!store.workspaces.some((workspace) => workspace.id === store.activeWorkspaceId)) {
+      store.activeWorkspaceId =
+        store.workspaces.find((workspace) => workspace.id === store.settings.active_workspace_id)?.id
+        ?? store.workspaces[0]?.id
+        ?? null;
+    }
+    applyTheme(store.settings.theme);
+    updateThemeToggleIcon(store.settings.theme);
+    if (isNative()) {
+      await api.setForceDarkWebsites(store.settings.force_dark_websites === 'true');
+      api.setSpellcheck(store.settings.spellcheck !== 'false').catch(() => {});
+      api.setDoNotTrack(store.settings.do_not_track === 'true').catch(() => {});
+      api.setContentBlocking(store.settings.content_blocking === 'true' ? (store.settings.cosmetic_filters ?? '') : '').catch(() => {});
+      api.setAutofillProfiles(store.settings.autofill_profiles ?? '[]').catch(() => {});
+    }
+    await refreshTabs();
+    await refreshBookmarks();
+    if (!store.tabs.some((tab) => tab.id === store.activeTabId)) {
+      store.activeTabId = store.tabs[0]?.id ?? null;
+    }
+    if (store.activeTabId) await activateTab(store.activeTabId);
+    await renderAll();
+    await syncNativeViews();
+  });
   document.addEventListener('govind:mute-tab', (e) => toggleTabMute(e.detail));
   document.addEventListener('govind:close-tab', async (e) => { await closeTab(e.detail); await renderAll(); });
   document.addEventListener('govind:render', async () => { await renderAll(); });
@@ -859,6 +913,7 @@ async function wireNativeEvents() {
     if (!isPrivate) await api.updateTabMeta(tabId, { title }).catch(() => {});
     renderTabs();
     if (tabId === store.activeTabId) renderToolbar();
+    if (store.view === 'internal' && store.internalPage === 'media-controls') renderAll();
   });
 
   // The page's favicon (probed by the engine after each page load).
@@ -881,17 +936,26 @@ async function wireNativeEvents() {
   });
 
   api.listen('tab-audio-state', (event) => {
-    const { tabId, playing, muted } = event.payload ?? {};
+    const { tabId, playing, muted, hasMedia, mediaPlaying } = event.payload ?? {};
     if (!tabId) return;
-    store.audioStates.set(tabId, { playing: !!playing, muted: !!muted });
+    store.audioStates.set(tabId, {
+      playing: !!playing,
+      muted: !!muted,
+      hasMedia: !!hasMedia,
+      mediaPlaying: !!mediaPlaying,
+    });
     if (muted) store.mutedTabs.add(tabId);
     else store.mutedTabs.delete(tabId);
     renderTabs();
+    if (store.view === 'internal' && store.internalPage === 'media-controls') renderAll();
   });
   api.listen('tab-translation-data', (event) => handleTranslationData(event.payload));
   api.listen('tab-snapshot-data', (event) => handleSnapshotData(event.payload));
   api.listen('tab-feature-notice', (event) => {
-    if (event.payload?.tabId === store.activeTabId) toast(event.payload.message);
+    if (event.payload?.tabId === store.activeTabId ||
+      String(event.payload?.message ?? '').startsWith('This site blocked playback.')) {
+      toast(event.payload.message);
+    }
   });
 
   // Safe browsing: the engine blocked a navigation to a listed site.
@@ -1038,7 +1102,7 @@ function buildPaletteCommands() {
     { title: 'Open Reading List', hint: 'govind://reading-list', keywords: ['read later', 'articles'], run: run(actions['reading-list']) },
     { title: 'Task Manager', hint: 'govind://task-manager', keywords: ['tabs', 'memory', 'audio'], run: run(actions['task-manager']) },
     { title: 'Toggle Guest Mode', hint: 'Private', keywords: ['guest', 'private', 'incognito'], run: run(actions['guest-mode']) },
-    { title: 'Clear Site Data for This Page', hint: 'Cookies', keywords: ['cookies', 'storage', 'sign out'], run: run(actions['clear-site-data']) },
+    { title: 'Forget This Site…', hint: 'Cookies & storage', keywords: ['shred', 'forgetful browsing', 'cookies', 'storage', 'sign out'], run: run(actions['clear-site-data']) },
   ];
 }
 

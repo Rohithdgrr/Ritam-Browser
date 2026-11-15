@@ -30,6 +30,8 @@ const KNOWN_SETTINGS = {
   spellcheck: { type: 'bool' },
   do_not_track: { type: 'bool' },
   safe_browsing: { type: 'bool' },
+  network_blocking: { type: 'bool' },
+  adblock_allowlist: { type: 'blocklist' },
   safebrowsing_blocklist: { type: 'blocklist' },
   content_blocking: { type: 'bool' },
   cosmetic_filters: { type: 'filters' },
@@ -47,6 +49,8 @@ const DEFAULT_SETTINGS = {
   spellcheck: 'true',
   do_not_track: 'false',
   safe_browsing: 'true',
+  network_blocking: 'true',
+  adblock_allowlist: '',
   safebrowsing_blocklist: '',
   content_blocking: 'false',
   cosmetic_filters: '',
@@ -336,6 +340,93 @@ export function createFallbackDb(storage) {
       return buildBookmarksHtml(bookmarks);
     },
 
+    async export_browser_backup_snapshot() {
+      const db = load();
+      return JSON.stringify({
+        version: 1,
+        exported_at: now(),
+        workspaces: db.workspaces,
+        tabs: db.tabs.filter((tab) => !tab.is_private),
+        bookmarks: db.bookmarks,
+        history: db.history,
+        notes: db.notes,
+        downloads: db.downloads,
+        reading_list: db.reading_list,
+        site_permissions: db.site_permissions,
+        settings: db.settings,
+      });
+    },
+    async import_browser_backup_snapshot({ snapshot_json } = {}) {
+      if (typeof snapshot_json !== 'string' || snapshot_json.length > 32 * 1024 * 1024) {
+        throw new Error('browser backup is too large');
+      }
+      let incoming;
+      try { incoming = JSON.parse(snapshot_json); } catch { throw new Error('invalid browser backup data'); }
+      const keys = ['workspaces', 'tabs', 'bookmarks', 'history', 'notes', 'downloads', 'reading_list', 'site_permissions'];
+      if (incoming?.version !== 1 || keys.some((key) => !Array.isArray(incoming[key]) || incoming[key].length > 50000)
+        || !incoming.settings || typeof incoming.settings !== 'object' || Array.isArray(incoming.settings)) {
+        throw new Error('unsupported or oversized browser backup');
+      }
+      const workspaceIds = new Set(incoming.workspaces.map((workspace) => workspace?.id));
+      const validBackupUrl = (url) => isSafeUrl(url)
+        && url !== HOME_URL
+        && (!url.startsWith('govind://') || [
+          'home', 'history', 'downloads', 'bookmarks', 'settings', 'recently-closed',
+          'reading-list', 'task-manager', 'media-controls', 'unsafe',
+        ].includes(url.slice('govind://'.length).replace(/\/+$/, '').toLowerCase()));
+      for (const tab of incoming.tabs) {
+        if (!tab || !isSafeUrl(tab.url) || !workspaceIds.has(tab.workspace_id)) throw new Error('invalid tab in browser backup');
+      }
+      for (const bookmark of incoming.bookmarks) {
+        if (!bookmark || !validBackupUrl(bookmark.url)) throw new Error('invalid bookmark in browser backup');
+      }
+      for (const item of [...incoming.history, ...incoming.reading_list]) {
+        if (!item || !validBackupUrl(item.url)) throw new Error('invalid URL in browser backup');
+      }
+
+      const db = JSON.parse(JSON.stringify(load()));
+      const summary = Object.fromEntries([...keys, 'settings'].map((key) => [key, 0]));
+      const addMissing = (target, rows, keyFn) => {
+        const seen = new Set(target.map(keyFn));
+        for (const row of rows) {
+          const key = keyFn(row);
+          if (seen.has(key)) continue;
+          target.push(row);
+          seen.add(key);
+          summary[target === db.workspaces ? 'workspaces'
+            : target === db.tabs ? 'tabs'
+              : target === db.bookmarks ? 'bookmarks'
+                : target === db.notes ? 'notes'
+                  : target === db.downloads ? 'downloads'
+                    : target === db.site_permissions ? 'site_permissions' : 'reading_list'] += 1;
+        }
+      };
+      addMissing(db.workspaces, incoming.workspaces, (row) => row.id);
+      addMissing(db.tabs, incoming.tabs, (row) => row.id);
+      addMissing(db.bookmarks, incoming.bookmarks, (row) => row.url);
+      for (const row of incoming.history) {
+        const existing = db.history.find((item) => item.url === row.url);
+        if (!existing) { db.history.push(row); summary.history += 1; }
+        else {
+          if (row.visited_at > existing.visited_at) existing.title = row.title;
+          existing.visited_at = Math.max(existing.visited_at, row.visited_at);
+          existing.visit_count = Math.max(existing.visit_count, row.visit_count);
+        }
+      }
+      addMissing(db.notes, incoming.notes, (row) => row.id);
+      addMissing(db.downloads, incoming.downloads, (row) => row.id);
+      addMissing(db.reading_list, incoming.reading_list, (row) => row.url);
+      addMissing(db.site_permissions, incoming.site_permissions, (row) => `${row.origin}\n${row.permission}`);
+      for (const [key, value] of Object.entries(incoming.settings)) {
+        if (!(key in db.settings) || (key in DEFAULT_SETTINGS && db.settings[key] === DEFAULT_SETTINGS[key])) {
+          db.settings[key] = value;
+          summary.settings += 1;
+        }
+      }
+      save(db);
+      return summary;
+    },
+
     // ── History ─────────────────────────────────────────────
     async search_history({ query = '', limit = 100 } = {}) {
       const db = load();
@@ -616,6 +707,21 @@ export function createFallbackDb(storage) {
     async set_spellcheck() { return { ok: true }; },
     async set_do_not_track() { return { ok: true }; },
     async set_content_blocking() { return { ok: true }; },
+    async set_network_blocking() { return { ok: true }; },
+    async set_network_blocking_allowlist() { return { ok: true }; },
+    async get_network_blocker_status() {
+      return {
+        available: false,
+        enabled: false,
+        ready: false,
+        loadedLists: 0,
+        resourceCount: 0,
+        allowlistCount: 0,
+        blockedRequests: 0,
+        redirectedRequests: 0,
+        rewrittenRequests: 0,
+      };
+    },
     async set_autofill_profiles() { return { ok: true }; },
     async request_page_snapshot() { throw new Error('Page snapshots need the installed app.'); },
     async clear_site_data() { return { ok: true }; },

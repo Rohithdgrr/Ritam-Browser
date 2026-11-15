@@ -128,26 +128,33 @@ pub fn list_tabs(db: State<'_, DbState>, workspace_id: Option<String>) -> Result
 }
 
 #[tauri::command]
-pub fn activate_tab(
-    _app: AppHandle,
+pub async fn activate_tab(
+    app: AppHandle,
     db: State<'_, DbState>,
     manager: State<'_, TabWebviewManager>,
     tab_id: String,
 ) -> Result<Tab, AppError> {
-    let conn = db.conn();
-    conn.execute(
-        "UPDATE tabs SET last_active_at = ?1 WHERE id = ?2",
-        params![now_ms(), tab_id],
-    )?;
-    // Persist the workspace of the activated tab as the active workspace.
-    if let Ok(tab) = get_tab(&conn, &tab_id) {
+    let tab = {
+        let conn = db.conn();
         conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_workspace_id', ?1)",
-            params![tab.workspace_id],
+            "UPDATE tabs SET last_active_at = ?1 WHERE id = ?2",
+            params![now_ms(), tab_id],
         )?;
+        // Persist the workspace of the activated tab as the active workspace.
+        if let Ok(tab) = get_tab(&conn, &tab_id) {
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_workspace_id', ?1)",
+                params![tab.workspace_id],
+            )?;
+        }
+        get_tab(&conn, &tab_id)?
+    };
+    if !crate::navigation::is_internal_url(&tab.url)
+        && !tab.url.eq_ignore_ascii_case("about:blank")
+        && !manager.has_view(&tab.id)
+    {
+        manager.navigate(&app, &tab.id, &tab.url, false).await?;
     }
-    let tab = get_tab(&conn, &tab_id)?;
-    drop(conn);
     manager.apply();
     Ok(tab)
 }
@@ -417,6 +424,18 @@ pub fn set_tab_muted(
 }
 
 #[tauri::command]
+pub fn control_tab_media(
+    manager: State<'_, TabWebviewManager>,
+    tab_id: String,
+) -> Result<(), AppError> {
+    if manager.control_tab_media(&tab_id) {
+        Ok(())
+    } else {
+        Err(AppError::NotFound("tab webview not found".into()))
+    }
+}
+
+#[tauri::command]
 pub fn set_force_dark_websites(manager: State<'_, TabWebviewManager>, enabled: bool) {
     manager.set_force_dark_websites(enabled);
 }
@@ -481,6 +500,48 @@ pub fn set_content_blocking(manager: State<'_, TabWebviewManager>, css: String) 
     Ok(())
 }
 
+/// Enable or disable network-level filter-list matching in WebView2.
+#[tauri::command]
+pub fn set_network_blocking(
+    manager: State<'_, TabWebviewManager>,
+    enabled: bool,
+) -> Result<(), AppError> {
+    manager.set_network_blocking(enabled);
+    Ok(())
+}
+
+/// Replace the per-site ad-blocking allowlist (hostnames, one per line). The
+/// value is validated by `set_setting` before this command is called.
+#[tauri::command]
+pub fn set_network_blocking_allowlist(
+    manager: State<'_, TabWebviewManager>,
+    allowlist: String,
+) -> Result<(), AppError> {
+    if allowlist.len() > 20_000 {
+        return Err(AppError::InvalidInput("ad-block allowlist too large".into()));
+    }
+    manager.set_network_blocking_allowlist(&allowlist);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_network_blocker_status(
+    manager: State<'_, TabWebviewManager>,
+) -> serde_json::Value {
+    let status = manager.network_blocker().status();
+    serde_json::json!({
+        "available": cfg!(windows),
+        "enabled": status.enabled,
+        "ready": status.ready,
+        "loadedLists": status.loaded_lists,
+        "resourceCount": status.resource_count,
+        "allowlistCount": status.allowlist_count,
+        "blockedRequests": status.blocked_requests,
+        "redirectedRequests": status.redirected_requests,
+        "rewrittenRequests": status.rewritten_requests,
+    })
+}
+
 /// Push the JSON autofill-profile array into every page.
 #[tauri::command]
 pub fn set_autofill_profiles(manager: State<'_, TabWebviewManager>, profiles_json: String) -> Result<(), AppError> {
@@ -516,11 +577,11 @@ pub fn request_page_snapshot(
 
 /// Expire cookies and clear origin storage for the page's site.
 #[tauri::command]
-pub fn clear_site_data(
+pub async fn clear_site_data(
     manager: State<'_, TabWebviewManager>,
     tab_id: String,
 ) -> Result<(), AppError> {
-    if manager.clear_site_data(&tab_id) {
+    if manager.clear_site_data(&tab_id).await? {
         Ok(())
     } else {
         Err(AppError::NotFound("tab webview not found".into()))

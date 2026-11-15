@@ -31,6 +31,13 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 thiserror = "2"
 log = "0.4"
+adblock = { version = "0.13.5", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling", "css-validation"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+base64 = "0.22"
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell"] }
 
 [profile.release]
 panic = "abort"

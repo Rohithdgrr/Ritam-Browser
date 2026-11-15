@@ -105,12 +105,15 @@ test('set_setting enforces the key allowlist and value types', async () => {
   await assert.rejects(() => db.set_setting({ key: 'evil_key', value: 'x' }));
   await assert.rejects(() => db.set_setting({ key: 'https_first', value: 'yes' }));
   await db.set_setting({ key: 'https_first', value: 'false' });
+  assert.equal((await db.get_settings()).network_blocking, 'true');
+  await db.set_setting({ key: 'network_blocking', value: 'false' });
   await db.set_setting({ key: 'translation_endpoint', value: 'http://localhost:5000' });
   await db.set_setting({ key: 'translation_endpoint', value: 'https://translate.example/api' });
   await assert.rejects(() => db.set_setting({ key: 'translation_endpoint', value: 'http://example.com' }));
   await assert.rejects(() => db.set_setting({ key: 'translation_endpoint', value: 'https://user:pass@example.com' }));
   const s = await db.get_settings();
   assert.equal(s.https_first, 'false');
+  assert.equal(s.network_blocking, 'false');
 });
 
 test('workspace deletion refuses the last workspace and cleans its tabs', async () => {
@@ -179,6 +182,36 @@ test('bookmark import/export round-trips through the HTML fallback', async () =>
   const roundTrip = await db.import_bookmarks_html({ html });
   assert.equal(roundTrip.imported, 0);
   assert.ok(roundTrip.duplicates >= 2);
+});
+
+test('encrypted backup data merges without deleting local records', async () => {
+  const source = freshDb();
+  await source.save_bookmark({ title: 'From backup', url: 'https://backup.example' });
+  await source.set_setting({ key: 'theme', value: 'zen-dark' });
+  const snapshot = await source.export_browser_backup_snapshot();
+  const target = freshDb();
+  await target.save_bookmark({ title: 'Keep local', url: 'https://local.example' });
+  await target.set_setting({ key: 'https_first', value: 'false' });
+
+  const summary = await target.import_browser_backup_snapshot({ snapshot_json: snapshot });
+  const bookmarks = await target.list_bookmarks();
+  assert.equal(summary.bookmarks, 1);
+  assert.ok(bookmarks.some((bookmark) => bookmark.url === 'https://local.example'));
+  assert.ok(bookmarks.some((bookmark) => bookmark.url === 'https://backup.example'));
+  const settings = await target.get_settings();
+  assert.equal(settings.theme, 'zen-dark');
+  assert.equal(settings.https_first, 'false');
+  assert.equal((await target.import_browser_backup_snapshot({ snapshot_json: snapshot })).bookmarks, 0);
+});
+
+test('browser backup rejects unsafe URLs before modifying local data', async () => {
+  const db = freshDb();
+  const snapshot = JSON.parse(await db.export_browser_backup_snapshot());
+  snapshot.bookmarks.push({
+    id: 'unsafe', title: 'Unsafe', url: 'javascript:alert(1)', is_favorite: 0, sort_order: 0, created_at: 1,
+  });
+  await assert.rejects(db.import_browser_backup_snapshot({ snapshot_json: JSON.stringify(snapshot) }));
+  assert.equal((await db.list_bookmarks()).length, 3);
 });
 
 test('native-only bookmark commands are unavailable in preview', async () => {

@@ -1,6 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,
     pub name: String,
@@ -9,7 +9,7 @@ pub struct Workspace {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
     pub id: String,
     pub workspace_id: String,
@@ -23,7 +23,7 @@ pub struct Tab {
     pub last_active_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bookmark {
     pub id: String,
     pub title: String,
@@ -33,7 +33,7 @@ pub struct Bookmark {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub id: String,
     pub url: String,
@@ -42,7 +42,7 @@ pub struct HistoryEntry {
     pub visit_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
     pub id: String,
     pub workspace_id: Option<String>,
@@ -51,7 +51,7 @@ pub struct Note {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Download {
     pub id: String,
     pub url: String,
@@ -65,7 +65,7 @@ pub struct Download {
     pub completed_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadingItem {
     pub id: String,
     pub url: String,
@@ -75,7 +75,7 @@ pub struct ReadingItem {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SitePermission {
     pub id: String,
     pub origin: String,

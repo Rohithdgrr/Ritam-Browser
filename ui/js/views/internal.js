@@ -23,6 +23,7 @@ const ICON = {
   recentlyClosed: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8M3 3v5h5M12 7v5l3 2"/></svg>',
   reading: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5zM4 5.5v16M8 7h8M8 11h8M8 15h5"/></svg>',
   taskManager: '<svg class="icon sm" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg>',
+  media: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
   shield: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4M12 16h.01"/></svg>',
   settings: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M19.8 4.2l-2.1 2.1M6.3 17.7l-2.1 2.1"/></svg>',
   trash: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>',
@@ -37,6 +38,7 @@ const NAV_ITEMS = [
   { page: 'bookmarks', label: 'Bookmarks', icon: ICON.bookmarks },
   { page: 'reading-list', label: 'Reading list', icon: ICON.reading },
   { page: 'task-manager', label: 'Task manager', icon: ICON.taskManager },
+  { page: 'media-controls', label: 'Media controls', icon: ICON.media },
   { page: 'recently-closed', label: 'Recently closed', icon: ICON.recentlyClosed },
   { page: 'settings', label: 'Settings', icon: ICON.settings },
 ];
@@ -47,6 +49,7 @@ const PAGE_TITLES = {
   bookmarks: 'Bookmarks',
   'reading-list': 'Reading list',
   'task-manager': 'Task manager',
+  'media-controls': 'Media controls',
   'recently-closed': 'Recently closed tabs',
   unsafe: 'Safety check',
   settings: 'Settings',
@@ -119,6 +122,7 @@ export async function renderInternalPage() {
   else if (page === 'bookmarks') await renderBookmarksPage();
   else if (page === 'reading-list') await renderReadingListPage();
   else if (page === 'task-manager') renderTaskManagerPage();
+  else if (page === 'media-controls') await renderMediaControlsPage();
   else if (page === 'recently-closed') renderRecentlyClosedPage();
 
   wireInternal();
@@ -363,6 +367,38 @@ function renderTaskManagerPage() {
         }).join('')}
       </div></section>
       <p class="s-desc" style="padding:0 4px">Shows per-tab state Govind can observe (audio, reader mode, private). The WebView2 engine does not expose per-tab CPU or memory figures.</p>`;
+  updateHeaderActions();
+}
+
+async function renderMediaControlsPage() {
+  const body = $('#internal-body');
+  if (!body) return;
+  const savedTabs = await api.listTabs();
+  const tabs = [...savedTabs, ...store.privateTabs]
+    .filter((tab) => store.audioStates.get(tab.id)?.hasMedia);
+  if (!tabs.length) {
+    body.innerHTML = '<div class="internal-empty"><p>No audio or video players found in the loaded tabs. Media inside cross-origin frames is not exposed to these controls.</p></div>';
+    updateHeaderActions();
+    return;
+  }
+  body.innerHTML = `
+    <section class="internal-group"><div class="internal-card">
+      ${tabs.map((tab) => {
+        const audio = store.audioStates.get(tab.id);
+        const playing = !!audio?.mediaPlaying;
+        const muted = !!audio?.muted;
+        return `
+          <div class="internal-row" data-id="${escapeHtml(tab.id)}">
+            <span class="row-fav" aria-hidden="true">${escapeHtml(monogram(tab.url))}</span>
+            <span class="row-title">${escapeHtml(tab.title || tab.url)}</span>
+            <span class="row-domain">${escapeHtml(displayUrl(tab.url))} · ${playing ? 'playing' : 'paused'}</span>
+            <button class="btn-secondary" data-media-toggle="${escapeHtml(tab.id)}" type="button">${playing ? 'Pause' : 'Play'}</button>
+            <button class="row-action" data-mute-task="${escapeHtml(tab.id)}" title="${muted ? 'Unmute tab' : 'Mute tab'}" aria-label="${muted ? 'Unmute tab' : 'Mute tab'}">${ICON.downloads}</button>
+            <button class="row-action" data-switch-tab="${escapeHtml(tab.id)}" title="Switch to tab" aria-label="Switch to tab">${ICON.search}</button>
+          </div>`;
+      }).join('')}
+    </div></section>
+    <p class="s-desc" style="padding:0 4px">Controls audio and video elements in each page's top-level document. A site may block playback started outside its own play button.</p>`;
   updateHeaderActions();
 }
 
@@ -657,6 +693,20 @@ export function wireInternal() {
       if (switchTab) {
         e.preventDefault();
         document.dispatchEvent(new CustomEvent('govind:activate-tab', { detail: switchTab }));
+        return;
+      }
+      const mediaToggle = e.target.closest('[data-media-toggle]')?.getAttribute('data-media-toggle');
+      if (mediaToggle) {
+        e.preventDefault();
+        if (!api.isNative()) {
+          toast('Media controls are available in the installed app.');
+          return;
+        }
+        try {
+          await api.controlTabMedia(mediaToggle);
+        } catch (err) {
+          toast(`Could not control media: ${err?.message ?? err}`);
+        }
         return;
       }
       const muteTask = e.target.closest('[data-mute-task]')?.getAttribute('data-mute-task');

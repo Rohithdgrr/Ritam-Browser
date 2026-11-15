@@ -10,9 +10,11 @@ import { $, $$, escapeHtml, toast } from '../lib/dom.js';
 import * as api from '../services/ipc.js';
 import { SEARCH_ENGINES } from '../lib/url.js';
 import { store } from '../state/store.js';
+import { decryptBrowserBackup, encryptBrowserBackup } from '../lib/encrypted-backup.js';
 
 const CATEGORIES = [
   { id: 'general', label: 'General', hint: 'Startup, search engine, HTTPS' },
+  { id: 'data', label: 'Data transfer', hint: 'Encrypted browser backup' },
   { id: 'appearance', label: 'Appearance', hint: 'Theme and web pages' },
   { id: 'autofill', label: 'Autofill', hint: 'Saved names, addresses, cards' },
   { id: 'translation', label: 'Translation', hint: 'LibreTranslate endpoint' },
@@ -114,6 +116,25 @@ async function renderCategory(category) {
     return;
   }
 
+  if (category === 'data') {
+    host.innerHTML = `
+      <section class="settings-card">
+        <h4>Encrypted browser backup</h4>
+        <p class="s-desc">Export or merge bookmarks, workspaces, tabs, history, notes, download records, reading list, site permissions, and settings. Private tabs and downloaded files are never included. The archive is encrypted on this device with your passphrase; Govind cannot recover a forgotten passphrase.</p>
+        <div class="setting-row">
+          <div><div class="s-title">Export backup</div>
+            <div class="s-desc">Keep the encrypted .gbak file somewhere safe to move it to another device.</div></div>
+          <button class="btn-secondary" id="backup-export" type="button">Export encrypted backup…</button>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Import backup</div>
+            <div class="s-desc">Import merges data without deleting existing records. Existing bookmarks, tabs, notes, and settings win on conflicts.</div></div>
+          <button class="btn-secondary" id="backup-import" type="button">Import encrypted backup…</button>
+        </div>
+      </section>`;
+    return;
+  }
+
   if (category === 'appearance') {
     host.innerHTML = `
       <section class="settings-card">
@@ -172,6 +193,14 @@ async function renderCategory(category) {
   }
 
   if (category === 'privacy') {
+    const blockerStatus = api.isNative() ? await api.getNetworkBlockerStatus() : null;
+    const blockerStatusText = !blockerStatus?.available
+      ? 'Network filtering is only available in the Windows app.'
+      : !blockerStatus.ready || blockerStatus.loadedLists === 0
+        ? 'Filter lists are loading; blocking starts when the engine is ready.'
+        : !blockerStatus.enabled
+          ? 'Network blocking is paused.'
+          : `${blockerStatus.loadedLists} filter lists and ${blockerStatus.resourceCount} scriptlet resources loaded · ${blockerStatus.blockedRequests} requests blocked, ${blockerStatus.redirectedRequests} redirected and ${blockerStatus.rewrittenRequests ?? 0} tracking parameters removed this session.`;
     host.innerHTML = `
       <section class="settings-card">
         <div class="setting-row">
@@ -195,6 +224,16 @@ async function renderCategory(category) {
           <div><div class="s-title">Safe browsing</div>
             <div class="s-desc">Warn before opening sites on Govind's blocklist. The built-in list is minimal — add your own domains below (one per line).</div></div>
           <label class="switch"><input type="checkbox" id="setting-safe-browsing" ${s.safe_browsing !== 'false' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Block ads and trackers</div>
+            <div class="s-desc">Match network requests, remove tracking parameters, hide ad elements, and run uBlock-compatible scriptlets using bundled EasyList, EasyPrivacy, and uBlock Origin filter lists. The snapshot works offline on first launch; each cached list refreshes on the upstream schedule (uBlock quick fixes every 12 hours, EasyList every 4 days) from the list hosts only. ${escapeHtml(blockerStatusText)}</div></div>
+          <label class="switch"><input type="checkbox" id="setting-network-blocking" ${s.network_blocking !== 'false' ? 'checked' : ''}/><span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="setting-row">
+          <div><div class="s-title">Ad-blocking allowlist</div>
+            <div class="s-desc">Sites where blocking is disabled, one hostname per line. Subdomains are included automatically. Reload open pages after changing this.</div></div>
+          <textarea id="setting-adblock-allowlist" rows="3" spellcheck="false" placeholder="example.com&#10;*.news.example.org">${escapeHtml(s.adblock_allowlist ?? '')}</textarea>
         </div>
         <div class="setting-row">
           <div><div class="s-title">Blocked sites</div>
@@ -321,6 +360,45 @@ function wireSettingsPage(container) {
   const on = (selector, event, handler) =>
     container.querySelector(selector)?.addEventListener(event, handler);
 
+  on('#backup-export', 'click', async () => {
+    const passphrase = await requestBackupPassphrase(true);
+    if (passphrase === null) return;
+    try {
+      const snapshot = await api.exportBrowserBackupSnapshot();
+      const encrypted = await encryptBrowserBackup(snapshot, passphrase);
+      if (api.isNative()) {
+        await api.saveEncryptedBrowserBackup(encrypted);
+      } else {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(new Blob([encrypted], { type: 'application/json' }));
+        link.download = 'govind-browser-backup.gbak';
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 0);
+      }
+      toast('Encrypted browser backup exported.');
+    } catch (error) {
+      toast(`Backup export failed: ${error?.message ?? error}`);
+    }
+  });
+
+  on('#backup-import', 'click', async () => {
+    try {
+      const encrypted = api.isNative()
+        ? await api.openEncryptedBrowserBackup()
+        : await chooseEncryptedBackupFile();
+      if (!encrypted) return;
+      const passphrase = await requestBackupPassphrase(false);
+      if (passphrase === null) return;
+      const snapshotJson = await decryptBrowserBackup(encrypted, passphrase);
+      if (!window.confirm('Merge the decrypted browser data? Existing data will not be deleted.')) return;
+      const summary = await api.importBrowserBackupSnapshot(snapshotJson);
+      document.dispatchEvent(new CustomEvent('govind:browser-data-restored'));
+      toast(`Backup merged — ${summary.bookmarks} bookmarks, ${summary.tabs} tabs, ${summary.history} history records merged.`);
+    } catch (error) {
+      toast(`Backup import failed: ${error?.message ?? error}`);
+    }
+  });
+
   on('#setting-restore-session', 'change', async (e) => {
     store.settings.restore_session = e.target.checked ? 'true' : 'false';
     await api.setSetting('restore_session', store.settings.restore_session);
@@ -341,6 +419,7 @@ function wireSettingsPage(container) {
       toast('Custom search URL must start with http:// or https://.');
       return;
     }
+
     store.settings.custom_search_url = value;
     if (value) await api.setSetting('custom_search_url', value);
     if (store.settings.search_engine !== 'custom') {
@@ -414,6 +493,28 @@ function wireSettingsPage(container) {
   on('#setting-safe-browsing', 'change', async (e) => {
     store.settings.safe_browsing = e.target.checked ? 'true' : 'false';
     await api.setSetting('safe_browsing', store.settings.safe_browsing);
+  });
+  on('#setting-network-blocking', 'change', async (e) => {
+    const enabled = e.target.checked;
+    const value = enabled ? 'true' : 'false';
+    try {
+      if (api.isNative()) await api.setNetworkBlocking(enabled);
+      await api.setSetting('network_blocking', value);
+      store.settings.network_blocking = value;
+      toast(enabled
+        ? 'Network ad and tracker blocking enabled. Reload open pages to remove ads already loaded.'
+        : 'Network ad and tracker blocking disabled.');
+    } catch (error) {
+      e.target.checked = !enabled;
+      toast(error?.message ?? 'Could not change network blocking.');
+    }
+  });
+  on('#setting-adblock-allowlist', 'change', async (e) => {
+    const value = e.target.value.trim();
+    try { await api.setSetting('adblock_allowlist', value); } catch (err) { toast(err?.message ?? 'Invalid ad-block allowlist.'); return; }
+    store.settings.adblock_allowlist = value;
+    if (api.isNative()) await api.setNetworkBlockingAllowlist(value);
+    toast('Ad-blocking allowlist saved. Reload open pages to apply.');
   });
   on('#setting-blocklist', 'change', async (e) => {
     const value = e.target.value.trim();
@@ -512,5 +613,69 @@ function wireSettingsPage(container) {
       const label = item.textContent.trim().toLowerCase();
       item.classList.toggle('hidden', !!query && !label.includes(query));
     });
+  });
+}
+
+function chooseEncryptedBackupFile() {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.gbak,.json,application/json';
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) { resolve(null); return; }
+      if (file.size > 48 * 1024 * 1024) { reject(new Error('Encrypted backup file is too large.')); return; }
+      try { resolve(await file.text()); } catch (error) { reject(error); }
+    }, { once: true });
+    input.addEventListener('cancel', () => resolve(null), { once: true });
+    input.click();
+  });
+}
+
+function requestBackupPassphrase(confirmPassphrase) {
+  return new Promise((resolve) => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'backup-passphrase-dialog';
+    dialog.setAttribute('aria-labelledby', 'backup-passphrase-title');
+    dialog.innerHTML = `
+      <form>
+        <h2 id="backup-passphrase-title">${confirmPassphrase ? 'Protect your backup' : 'Unlock your backup'}</h2>
+        <p>${confirmPassphrase
+          ? 'Use at least 12 characters. This passphrase is never saved and cannot be recovered.'
+          : 'Enter the passphrase used when this backup was created.'}</p>
+        <label>Passphrase<input name="passphrase" type="password" minlength="12" autocomplete="new-password" required /></label>
+        ${confirmPassphrase ? '<label>Confirm passphrase<input name="confirmation" type="password" minlength="12" autocomplete="new-password" required /></label>' : ''}
+        <p class="backup-passphrase-error" role="alert" hidden></p>
+        <div class="backup-passphrase-actions">
+          <button class="btn-secondary" type="button" data-cancel>Cancel</button>
+          <button class="btn-primary" type="submit">${confirmPassphrase ? 'Encrypt backup' : 'Unlock'}</button>
+        </div>
+      </form>`;
+    document.body.append(dialog);
+    const form = dialog.querySelector('form');
+    const error = dialog.querySelector('.backup-passphrase-error');
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (dialog.open) dialog.close();
+      dialog.remove();
+      resolve(value);
+    };
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const passphrase = form.elements.passphrase.value;
+      if (confirmPassphrase && passphrase !== form.elements.confirmation.value) {
+        error.textContent = 'Passphrases do not match.';
+        error.hidden = false;
+        form.elements.confirmation.focus();
+        return;
+      }
+      finish(passphrase);
+    });
+    dialog.querySelector('[data-cancel]').addEventListener('click', () => finish(null));
+    dialog.addEventListener('cancel', (event) => { event.preventDefault(); finish(null); }, { once: true });
+    dialog.showModal();
+    form.elements.passphrase.focus();
   });
 }
